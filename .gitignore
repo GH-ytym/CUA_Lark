@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.coverage
+*.egg-info/
 
 # Node
 frontend/node_modules/
@@ -16,4 +19,8 @@ backend/.env
 frontend/.env
 
 # IDE
-.vscode/*.code-workspace
+.vscode/
+.idea/
+
+# Logs
+*.log
