@@ -3,7 +3,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.middleware.auth import AuthMiddleware
 from app.api.middleware.request_context import RequestContextMiddleware
 from app.api.routes import api_router
 from app.core.config import get_settings
@@ -22,7 +21,6 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(RequestContextMiddleware)
-    app.add_middleware(AuthMiddleware)
 
     app.include_router(api_router)
     return app

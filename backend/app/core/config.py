@@ -2,7 +2,6 @@
 
 from functools import lru_cache
 
-from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,8 +17,6 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     frontend_origin: str = "http://127.0.0.1:5173"
-    feishu_app_link_token: str = ""
-    internal_api_token: str = Field(default="dev-internal-token", min_length=8)
 
     event_backend: str = "memory"
     redis_url: str = "redis://127.0.0.1:6379/0"

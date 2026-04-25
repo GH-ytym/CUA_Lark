@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
+from app.domain.enums import CuaAbortReason, ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
 
 
 class MvpCapability(BaseModel):
@@ -26,6 +26,8 @@ class ExecutionTask(BaseModel):
     intent_type: IntentType = IntentType.UNKNOWN
     executor: ExecutorType = ExecutorType.NONE
     status: ExecutionStatus = ExecutionStatus.QUEUED
+    cli_error_code: LarkCliErrorCode | None = None
+    cua_abort_reason: CuaAbortReason | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

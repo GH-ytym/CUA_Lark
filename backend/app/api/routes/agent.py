@@ -5,11 +5,18 @@ from uuid import uuid4
 
 from fastapi import APIRouter
 
-from app.domain.enums import ALLOWED_TRANSITIONS, ExecutionStatus, IntentType
+from app.domain.enums import (
+    ALLOWED_TRANSITIONS,
+    CuaAbortReason,
+    ExecutionStatus,
+    IntentType,
+    LarkCliErrorCode,
+)
 from app.domain.models import MvpCapability, StateMachineSpec
 from app.schemas.chat import (
     ExecuteCommandRequest,
     ExecuteCommandResponse,
+    CuaBoundaryResponse,
     MvpScopeResponse,
     ParsePreviewResponse,
     StateMachineResponse,
@@ -74,6 +81,31 @@ async def get_state_machine() -> StateMachineResponse:
         transitions={status: sorted(list(next_states)) for status, next_states in ALLOWED_TRANSITIONS.items()},
     )
     return StateMachineResponse(spec=spec)
+
+
+@router.get("/cua-boundary", response_model=CuaBoundaryResponse)
+async def get_cua_boundary() -> CuaBoundaryResponse:
+    """Expose CUA trigger and abort codes aligned with cua/trigger_rules.py."""
+    return CuaBoundaryResponse(
+        cli_trigger_error_codes=[
+            LarkCliErrorCode.RATE_LIMIT,
+            LarkCliErrorCode.API_UNSUPPORTED,
+            LarkCliErrorCode.PERMISSION_DENIED,
+            LarkCliErrorCode.API_ERROR,
+            LarkCliErrorCode.RESULT_INVALID,
+            LarkCliErrorCode.USER_REQUESTED,
+            LarkCliErrorCode.HYBRID_TASK_REQUIRED,
+        ],
+        cua_abort_reasons=[
+            CuaAbortReason.LOW_CONFIDENCE,
+            CuaAbortReason.TIMEOUT,
+            CuaAbortReason.INTERFACE_CHANGED,
+            CuaAbortReason.MAX_RETRY_EXCEEDED,
+            CuaAbortReason.SECURITY_RISK,
+            CuaAbortReason.USER_INTERRUPTED,
+            CuaAbortReason.MULTI_MONITOR_UNSUPPORTED,
+        ],
+    )
 
 
 @router.post("/execute", response_model=ExecuteCommandResponse)
