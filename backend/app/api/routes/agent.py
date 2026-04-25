@@ -21,8 +21,10 @@ from app.schemas.chat import (
     ParsePreviewResponse,
     StateMachineResponse,
 )
+from app.services.intent_service import IntentService
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+intent_service = IntentService()
 
 MVP_CAPABILITIES: list[MvpCapability] = [
     MvpCapability(
@@ -111,9 +113,13 @@ async def get_cua_boundary() -> CuaBoundaryResponse:
 @router.post("/execute", response_model=ExecuteCommandResponse)
 async def execute_command(payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
     """Accept one command and return task acceptance payload."""
-    _ = preview_intent(payload.message)
+    parsed = await intent_service.parse(message=payload.message, context_hint=payload.context_hint)
     return ExecuteCommandResponse(
         task_id=str(uuid4()),
         initial_status=ExecutionStatus.QUEUED,
+        selected_executor=parsed.selected_executor,
+        parsed_intent=parsed.intent_type,
+        intent_reason=parsed.reason,
+        action_plan=parsed.action_plan,
         accepted_at=datetime.now(UTC),
     )
