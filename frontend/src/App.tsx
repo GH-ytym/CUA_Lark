@@ -1,1 +1,10 @@
-﻿// Root app component that will compose the sidebar layout, command workflow, and execution status surfaces.
+﻿import { AppShell } from "./app/AppShell";
+import { SidebarPage } from "./pages/SidebarPage";
+
+export default function App() {
+	return (
+		<AppShell>
+			<SidebarPage />
+		</AppShell>
+	);
+}
