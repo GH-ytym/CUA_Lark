@@ -1,1 +1,48 @@
-﻿# Chat schemas that will validate command submission payloads and sidebar conversation metadata.
+"""API schemas for command submission and orchestration introspection."""
+
+from datetime import UTC, datetime
+from uuid import uuid4
+
+from pydantic import BaseModel, Field
+
+from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
+from app.domain.models import MvpCapability, StateMachineSpec
+
+
+class ExecuteCommandRequest(BaseModel):
+    """Inbound command payload from sidebar."""
+
+    message: str = Field(min_length=1, max_length=2000)
+    session_id: str = Field(min_length=1, max_length=128)
+    user_id: str = Field(min_length=1, max_length=128)
+    conversation_type: str = Field(default="chat", max_length=32)
+    context_hint: str = Field(default="", max_length=1000)
+
+
+class ExecuteCommandResponse(BaseModel):
+    """Immediate ack returned after task creation."""
+
+    task_id: str = Field(default_factory=lambda: str(uuid4()))
+    initial_status: ExecutionStatus = ExecutionStatus.QUEUED
+    selected_executor: ExecutorType = ExecutorType.NONE
+    accepted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class MvpScopeResponse(BaseModel):
+    """Frozen MVP capability list for sprint governance."""
+
+    frozen: bool = True
+    capabilities: list[MvpCapability]
+
+
+class StateMachineResponse(BaseModel):
+    """State-machine response wrapper."""
+
+    spec: StateMachineSpec
+
+
+class ParsePreviewResponse(BaseModel):
+    """Simple intent preview for day-3 parser iteration."""
+
+    intent_type: IntentType
+    reason: str
