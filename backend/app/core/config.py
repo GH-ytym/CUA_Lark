@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     lark_cli_timeout_seconds: int = 20
     cua_max_steps: int = 20
 
+    minimax_api_key: str = ""
+    minimax_chat_url: str = "https://api.minimax.chat/v1/chat/completions"
+    minimax_model: str = "MiniMax-M2.5"
+    minimax_timeout_seconds: int = 20
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -31,6 +31,9 @@ class ExecuteCommandResponse(BaseModel):
     task_id: str = Field(default_factory=lambda: str(uuid4()))
     initial_status: ExecutionStatus = ExecutionStatus.QUEUED
     selected_executor: ExecutorType = ExecutorType.NONE
+    parsed_intent: IntentType = IntentType.UNKNOWN
+    intent_reason: str = ""
+    action_plan: list[str] = Field(default_factory=list)
     accepted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
