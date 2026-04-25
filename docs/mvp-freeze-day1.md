@@ -16,3 +16,4 @@
 - 状态机序列化模型：`backend/app/domain/models.py`
 - 查询接口：`GET /api/agent/state-machine`
 - MVP 查询接口：`GET /api/agent/mvp-scope`
+- CUA 边界接口：`GET /api/agent/cua-boundary`（触发码与放弃原因与 `cua/trigger_rules.py` 对齐）

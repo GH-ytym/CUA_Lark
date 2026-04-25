@@ -34,6 +34,30 @@ class IntentType(StrEnum):
     UNKNOWN = "unknown"
 
 
+class LarkCliErrorCode(StrEnum):
+    """CLI failure codes aligned to cua.trigger_rules.LarkCliError."""
+
+    RATE_LIMIT = "rate_limit_exceeded"
+    API_UNSUPPORTED = "api_unsupported"
+    PERMISSION_DENIED = "permission_denied"
+    API_ERROR = "api_internal_error"
+    RESULT_INVALID = "result_invalid"
+    USER_REQUESTED = "user_requested"
+    HYBRID_TASK_REQUIRED = "hybrid_task_required"
+
+
+class CuaAbortReason(StrEnum):
+    """Abort reasons aligned to cua.trigger_rules.CuaAbortReason."""
+
+    LOW_CONFIDENCE = "low_confidence"
+    TIMEOUT = "operation_timeout"
+    INTERFACE_CHANGED = "interface_unexpectedly_changed"
+    MAX_RETRY_EXCEEDED = "max_retry_exceeded"
+    SECURITY_RISK = "security_risk_detected"
+    USER_INTERRUPTED = "user_interrupted"
+    MULTI_MONITOR_UNSUPPORTED = "multi_monitor_unsupported"
+
+
 ALLOWED_TRANSITIONS: dict[ExecutionStatus, set[ExecutionStatus]] = {
     ExecutionStatus.QUEUED: {ExecutionStatus.PARSING, ExecutionStatus.CANCELED},
     ExecutionStatus.PARSING: {

@@ -5,7 +5,13 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
+from app.domain.enums import (
+    CuaAbortReason,
+    ExecutionStatus,
+    ExecutorType,
+    IntentType,
+    LarkCliErrorCode,
+)
 from app.domain.models import MvpCapability, StateMachineSpec
 
 
@@ -39,6 +45,13 @@ class StateMachineResponse(BaseModel):
     """State-machine response wrapper."""
 
     spec: StateMachineSpec
+
+
+class CuaBoundaryResponse(BaseModel):
+    """Boundary rules exported from backend contract for B/C alignment."""
+
+    cli_trigger_error_codes: list[LarkCliErrorCode]
+    cua_abort_reasons: list[CuaAbortReason]
 
 
 class ParsePreviewResponse(BaseModel):
