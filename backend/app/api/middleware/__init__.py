@@ -1,1 +1,1 @@
-﻿# Middleware package that will register authentication, request context, and error normalization middleware for FastAPI.
+# Middleware package that will register request context and error normalization middleware for FastAPI.
