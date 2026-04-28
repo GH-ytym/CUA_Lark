@@ -1,0 +1,83 @@
+{
+  "messages": [
+    "发消息给CUA-Lark-4：今晚9点发布",
+    "请给刘海俊说今天晚点到",
+    "跟梅家济说hello"
+  ],
+  "runs": 3,
+  "message_send_count": 3,
+  "message_send_rate": 1.0,
+  "resolved_target_count": 3,
+  "resolved_target_rate": 1.0,
+  "per_message": {
+    "跟梅家济说hello": {
+      "runs": 1,
+      "message_send_count": 1,
+      "resolved_target_count": 1,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "发消息给CUA-Lark-4：今晚9点发布": {
+      "runs": 1,
+      "message_send_count": 1,
+      "resolved_target_count": 1,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "请给刘海俊说今天晚点到": {
+      "runs": 1,
+      "message_send_count": 1,
+      "resolved_target_count": 1,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    }
+  },
+  "updated_at": "2026-04-28T06:41:25.299138+00:00",
+  "results": [
+    {
+      "run": 1,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 11819.74,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 2,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 4069.45,
+      "parse_source": "minimax",
+      "intent_type": "message_send",
+      "reason": "口语表达命中消息发送语义",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 3,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 17224.37,
+      "parse_source": "minimax",
+      "intent_type": "message_send",
+      "reason": "口语表达命中消息发送语义",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    }
+  ]
+}
