@@ -27,3 +27,11 @@ frontend/.env
 
 # Logs
 *.log
+
+# Docs
+docs/
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
