@@ -53,29 +53,34 @@ class LarkCliService:
     def execute(self, intent: IntentType, payload: dict[str, Any], dry_run: bool = False) -> LarkCliServiceResult:
         """Execute planned lark-cli command(s) and normalize outputs."""
         plan = self.plan(intent=intent, payload=payload)
+        use_dry_run = dry_run or bool(payload.get("dry_run", False))
+        steps: list[dict[str, Any]] = []
         if not plan.invocations:
-            return LarkCliServiceResult(
-                success=False,
+            return self._failure_result(
+                plan=plan,
+                dry_run=use_dry_run,
+                steps=steps,
                 error_code=LarkCliErrorCode.API_UNSUPPORTED,
                 summary="intent is not supported by current CLI business adapters",
-                payload={},
-                plan=plan,
+                detail={"intent": intent.value},
             )
-        steps: list[dict[str, Any]] = []
         cli_bin = self._resolve_cli_bin(self.settings.lark_cli_path)
-        use_dry_run = dry_run or bool(payload.get("dry_run", False))
         workdir = self._resolve_workdir(self.settings.lark_cli_workdir)
         timeout = max(1, int(self.settings.lark_cli_timeout_seconds))
         for invocation in plan.invocations:
             try:
                 argv = self.adapter.build_command(invocation=invocation, cli_bin=cli_bin, dry_run=use_dry_run)
             except ValueError as exc:
-                return LarkCliServiceResult(
-                    success=False,
+                return self._failure_result(
+                    plan=plan,
+                    dry_run=use_dry_run,
+                    steps=steps,
                     error_code=LarkCliErrorCode.RESULT_INVALID,
                     summary=f"invalid cli payload: {exc}",
-                    payload={"domain": plan.domain.value},
-                    plan=plan,
+                    detail={
+                        "tool_family": invocation.tool_family,
+                        "operation": invocation.operation,
+                    },
                 )
             rendered = self.adapter.stringify_command(argv)
             started = time.perf_counter()
@@ -89,21 +94,23 @@ class LarkCliService:
                     cwd=workdir,
                 )
             except subprocess.TimeoutExpired as exc:
-                return LarkCliServiceResult(
-                    success=False,
+                return self._failure_result(
+                    plan=plan,
+                    dry_run=use_dry_run,
+                    steps=steps,
                     error_code=LarkCliErrorCode.RATE_LIMIT,
                     summary=f"cli execution timeout: {timeout}s",
-                    payload={"command": rendered, "timeout": timeout, "stderr": str(exc)},
-                    plan=plan,
+                    detail={"command": rendered, "timeout": timeout, "stderr": str(exc)},
                 )
             except Exception as exc:  # noqa: BLE001
                 code = self.normalize_failure(str(exc))
-                return LarkCliServiceResult(
-                    success=False,
+                return self._failure_result(
+                    plan=plan,
+                    dry_run=use_dry_run,
+                    steps=steps,
                     error_code=code,
                     summary=f"cli invocation failed before execution: {exc}",
-                    payload={"command": rendered},
-                    plan=plan,
+                    detail={"command": rendered},
                 )
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             stdout_text = self._decode_output(proc.stdout)
@@ -122,24 +129,71 @@ class LarkCliService:
             steps.append(step)
             if proc.returncode != 0:
                 error_text = stderr_text.strip() or stdout_text.strip() or "cli returned non-zero"
-                return LarkCliServiceResult(
-                    success=False,
+                return self._failure_result(
+                    plan=plan,
+                    dry_run=use_dry_run,
+                    steps=steps,
                     error_code=self.normalize_failure(error_text),
                     summary="cli command failed",
-                    payload={"domain": plan.domain.value, "steps": steps},
-                    plan=plan,
+                    detail={"last_error": error_text},
                 )
-        return LarkCliServiceResult(
-            success=True,
-            error_code=None,
-            summary=f"executed {len(plan.invocations)} cli invocation(s)",
-            payload={"domain": plan.domain.value, "dry_run": use_dry_run, "steps": steps},
+        return self._success_result(
             plan=plan,
+            dry_run=use_dry_run,
+            steps=steps,
+            summary=f"executed {len(plan.invocations)} cli invocation(s)",
         )
 
     def simulate_execute(self, intent: IntentType, payload: dict[str, Any]) -> LarkCliServiceResult:
         """Backward-compatible alias. Day4 now uses real CLI execution path."""
         return self.execute(intent=intent, payload=payload, dry_run=bool(payload.get("dry_run", True)))
+
+    def _success_result(
+        self,
+        plan: CliCallPlan,
+        dry_run: bool,
+        steps: list[dict[str, Any]],
+        summary: str,
+    ) -> LarkCliServiceResult:
+        return LarkCliServiceResult(
+            success=True,
+            error_code=None,
+            summary=summary,
+            payload=self._build_payload(plan=plan, dry_run=dry_run, steps=steps, error=None),
+            plan=plan,
+        )
+
+    def _failure_result(
+        self,
+        plan: CliCallPlan,
+        dry_run: bool,
+        steps: list[dict[str, Any]],
+        error_code: LarkCliErrorCode,
+        summary: str,
+        detail: dict[str, Any] | None = None,
+    ) -> LarkCliServiceResult:
+        error = {"code": error_code.value, "message": summary, "detail": detail or {}}
+        return LarkCliServiceResult(
+            success=False,
+            error_code=error_code,
+            summary=summary,
+            payload=self._build_payload(plan=plan, dry_run=dry_run, steps=steps, error=error),
+            plan=plan,
+        )
+
+    @staticmethod
+    def _build_payload(
+        plan: CliCallPlan,
+        dry_run: bool,
+        steps: list[dict[str, Any]],
+        error: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        return {
+            "domain": plan.domain.value,
+            "dry_run": dry_run,
+            "steps": steps,
+            "error": error,
+        }
 
     @staticmethod
     def _parse_cli_output(stdout: str | bytes | None) -> dict[str, Any]:

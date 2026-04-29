@@ -130,7 +130,7 @@ class LarkCliAdapter:
                             "user_id": payload.get("user_id", ""),
                             "text": payload.get("text", payload.get("message", "")),
                             "idempotency_key": payload.get("idempotency_key", ""),
-                            "identity": payload.get("identity", "bot"),
+                            "identity": payload.get("identity", "user"),
                         },
                     ),
                 ),
@@ -201,7 +201,7 @@ class LarkCliAdapter:
         user_id = str(arguments.get("user_id", "")).strip()
         if not chat_id and not user_id:
             raise ValueError("missing chat_id/user_id for lark-im +messages-send")
-        identity = str(arguments.get("identity", "bot")).strip().lower() or "bot"
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
         if identity not in {"bot", "user"}:
             raise ValueError("identity must be bot or user")
         command = [cli_bin, "im", "+messages-send", "--as", identity, "--text", text]

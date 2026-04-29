@@ -37,6 +37,9 @@ class IntentService:
         if self.settings.intent_message_fastpath_enabled and self._looks_like_message_command(message, lowered):
             fast_decision = self._build_message_fastpath_decision(message=message)
             return await self._resolve_message_recipient(decision=fast_decision, message=message)
+        local_message_decision = await self._try_message_without_llm(message=message, lowered=lowered)
+        if local_message_decision is not None:
+            return local_message_decision
         llm_result = await self._parse_with_llm(message=message, context_hint=context_hint)
         if llm_result is not None:
             return llm_result
@@ -58,7 +61,7 @@ class IntentService:
         intent_raw, llm_error = await self._request_llm_json(
             system_prompt=self._intent_prompt(),
             user_payload={"message": message, "context_hint": context_hint},
-            max_tokens=160,
+            max_tokens=96,
             contract_hint=self._intent_contract_hint(),
             allow_repair=True,
             allow_retry=True,
@@ -473,3 +476,22 @@ class IntentService:
         updated_structured = dict(structured)
         updated_structured["payload"] = resolved_payload
         return decision.model_copy(update={"structured_command": updated_structured})
+
+    async def _try_message_without_llm(self, message: str, lowered: str) -> IntentDecision | None:
+        if not self._looks_like_message_command(message, lowered):
+            return None
+        decision = self._build_message_fastpath_decision(
+            message=message,
+            parse_source="rules_resolve_first",
+            reason="消息发送本地解析命中",
+        )
+        resolved = await self._resolve_message_recipient(decision=decision, message=message)
+        payload = resolved.structured_command.get("payload", {})
+        if not isinstance(payload, dict):
+            return None
+        if payload.get("chat_id") or payload.get("user_id"):
+            return resolved
+        resolution_status = str(payload.get("resolution_status", "")).strip().lower()
+        if resolution_status == "needs_confirmation" and payload.get("resolution_candidates"):
+            return resolved
+        return None

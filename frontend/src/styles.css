@@ -1,4 +1,4 @@
-﻿:root {
+:root {
 	color: #172033;
 	background: #eef4ff;
 	font-family:
@@ -39,6 +39,12 @@ textarea {
 
 button {
 	cursor: pointer;
+}
+
+button:disabled,
+textarea:disabled {
+	cursor: not-allowed;
+	opacity: 0.65;
 }
 
 .app-shell {
@@ -377,6 +383,48 @@ button {
 	margin: 0;
 	color: var(--text);
 	font-weight: 700;
+}
+
+.confirmation-panel {
+	display: grid;
+	gap: 14px;
+}
+
+.candidate-list {
+	display: grid;
+	gap: 10px;
+}
+
+.candidate-card {
+	display: grid;
+	grid-template-columns: 20px 1fr;
+	gap: 12px;
+	align-items: flex-start;
+	padding: 14px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: var(--panel-strong);
+}
+
+.candidate-card p,
+.confirmation-tip,
+.empty-state,
+.error-banner {
+	margin: 0;
+	line-height: 1.6;
+}
+
+.candidate-card p,
+.confirmation-tip,
+.empty-state {
+	color: var(--muted);
+}
+
+.error-banner {
+	padding: 10px 12px;
+	border-radius: 12px;
+	color: #991b1b;
+	background: #fee2e2;
 }
 
 .runtime-grid dd {

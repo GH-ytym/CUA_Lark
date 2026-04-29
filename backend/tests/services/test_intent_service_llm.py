@@ -9,6 +9,10 @@ def test_llm_two_stage_message_parse() -> None:
     service.settings.minimax_api_key = "test-key"
     service.settings.intent_message_fastpath_enabled = False
 
+    async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = kwargs.get("payload", {})
+        return dict(payload) if isinstance(payload, dict) else {}
+
     responses = [
         json.dumps(
             {
@@ -25,6 +29,7 @@ def test_llm_two_stage_message_parse() -> None:
         ),
     ]
 
+    service.recipient_resolver.resolve = unresolved_resolve  # type: ignore[method-assign]
     async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
         return responses.pop(0), None
 
@@ -41,6 +46,10 @@ def test_llm_skips_second_stage_when_entities_complete() -> None:
     service = IntentService()
     service.settings.minimax_api_key = "test-key"
     service.settings.intent_message_fastpath_enabled = False
+
+    async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = kwargs.get("payload", {})
+        return dict(payload) if isinstance(payload, dict) else {}
 
     call_count = {"n": 0}
 
@@ -59,6 +68,7 @@ def test_llm_skips_second_stage_when_entities_complete() -> None:
             None,
         )
 
+    service.recipient_resolver.resolve = unresolved_resolve  # type: ignore[method-assign]
     service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("跟梅家济说hello"))
     payload = decision.structured_command.get("payload", {})
@@ -72,10 +82,15 @@ def test_llm_accepts_legacy_action_format() -> None:
     service.settings.minimax_api_key = "test-key"
     service.settings.intent_message_fastpath_enabled = False
 
+    async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = kwargs.get("payload", {})
+        return dict(payload) if isinstance(payload, dict) else {}
+
     responses = [
         json.dumps({"action": "greeting", "target": "梅家济", "message": "hello"}, ensure_ascii=False),
     ]
 
+    service.recipient_resolver.resolve = unresolved_resolve  # type: ignore[method-assign]
     async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
         return responses.pop(0), None
 
@@ -129,3 +144,62 @@ def test_message_fastpath_without_llm() -> None:
     assert decision.intent_type.value == "message_send"
     assert payload.get("chat_hint") == "梅家济"
     assert payload.get("text") == "hello"
+
+
+def test_local_resolution_skips_llm() -> None:
+    service = IntentService()
+    service.settings.minimax_api_key = "test-key"
+    service.settings.intent_message_fastpath_enabled = False
+
+    async def fake_resolve(*_: object, **__: object) -> dict[str, str]:
+        return {
+            "chat_hint": "项目群",
+            "chat_id": "oc_proj",
+            "user_id": "",
+            "text": "今晚发布",
+            "resolved_name": "项目群",
+            "resolution_status": "resolved",
+            "resolution_method": "rules",
+            "resolution_score": "1.0",
+        }
+
+    async def should_not_call(*_: object, **__: object) -> tuple[str, str | None]:
+        raise AssertionError("LLM should not be called after local resolution")
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = should_not_call  # type: ignore[method-assign]
+    decision = asyncio.run(service.parse("给项目群发今晚发布"))
+    payload = decision.structured_command.get("payload", {})
+    assert decision.parse_source == "rules_resolve_first"
+    assert payload.get("chat_id") == "oc_proj"
+    assert payload.get("resolution_status") == "resolved"
+
+
+def test_local_confirmation_skips_llm() -> None:
+    service = IntentService()
+    service.settings.minimax_api_key = "test-key"
+    service.settings.intent_message_fastpath_enabled = False
+
+    async def fake_resolve(*_: object, **__: object) -> dict[str, object]:
+        return {
+            "chat_hint": "王",
+            "chat_id": "",
+            "user_id": "",
+            "text": "你好",
+            "resolution_status": "needs_confirmation",
+            "resolution_candidates": [
+                {"name": "王建国", "entity_type": "contact", "entity_id": "ou_a", "score": 0.91},
+                {"name": "王小明", "entity_type": "contact", "entity_id": "ou_b", "score": 0.88},
+            ],
+        }
+
+    async def should_not_call(*_: object, **__: object) -> tuple[str, str | None]:
+        raise AssertionError("LLM should not be called when confirmation candidates already exist")
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = should_not_call  # type: ignore[method-assign]
+    decision = asyncio.run(service.parse("给王发你好"))
+    payload = decision.structured_command.get("payload", {})
+    assert decision.parse_source == "rules_resolve_first"
+    assert payload.get("resolution_status") == "needs_confirmation"
+    assert len(payload.get("resolution_candidates", [])) == 2

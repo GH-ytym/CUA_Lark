@@ -1,23 +1,4 @@
-﻿import type { TaskCard } from "../../types/execution";
-
-const tasks: TaskCard[] = [
-	{
-		id: "task-001",
-		title: "发送群提醒",
-		description: "解析自然语言 → 映射 Lark-CLI 消息命令 → 等待执行结果。",
-		status: "running",
-		owner: "CLI",
-		duration: "00:18",
-	},
-	{
-		id: "task-002",
-		title: "日程冲突处理",
-		description: "CLI 返回权限不足，计划切换至 CUA 视觉保底流程。",
-		status: "fallback",
-		owner: "CUA",
-		duration: "01:04",
-	},
-];
+import type { TaskCard } from "../../types/execution";
 
 const statusLabel: Record<TaskCard["status"], string> = {
 	queued: "排队中",
@@ -27,7 +8,11 @@ const statusLabel: Record<TaskCard["status"], string> = {
 	failed: "失败",
 };
 
-export function ExecutionFeed() {
+type ExecutionFeedProps = {
+	tasks: TaskCard[];
+};
+
+export function ExecutionFeed({ tasks }: ExecutionFeedProps) {
 	return (
 		<section className="panel feed" aria-labelledby="feed-title">
 			<div className="panel-title-row">
@@ -39,6 +24,7 @@ export function ExecutionFeed() {
 			</div>
 
 			<div className="task-list">
+				{tasks.length === 0 ? <p className="empty-state">提交一条指令后，这里会显示解析与确认结果。</p> : null}
 				{tasks.map((task) => (
 					<article className={`task-card task-card--${task.status}`} key={task.id}>
 						<div className="task-card__header">

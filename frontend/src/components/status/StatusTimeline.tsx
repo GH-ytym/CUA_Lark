@@ -1,13 +1,10 @@
-﻿import type { TimelineStep } from "../../types/execution";
+import type { TimelineStep } from "../../types/execution";
 
-const steps: TimelineStep[] = [
-	{ id: "parse", label: "解析", detail: "识别意图、参数与风险词", status: "done" },
-	{ id: "route", label: "路由", detail: "优先选择 CLI 精确执行", status: "done" },
-	{ id: "execute", label: "执行", detail: "展示队列、运行与失败原因", status: "active" },
-	{ id: "verify", label: "校验", detail: "结果回传并支持查看详情", status: "pending" },
-];
+type StatusTimelineProps = {
+	steps: TimelineStep[];
+};
 
-export function StatusTimeline() {
+export function StatusTimeline({ steps }: StatusTimelineProps) {
 	return (
 		<section className="panel timeline" aria-labelledby="timeline-title">
 			<div className="panel-title-row">

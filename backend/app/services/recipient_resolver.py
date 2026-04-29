@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from difflib import SequenceMatcher
 import inspect
 from pathlib import Path
 import re
@@ -12,6 +11,12 @@ import sqlite3
 from typing import Any, Awaitable, Callable
 
 import httpx
+from difflib import SequenceMatcher
+
+try:
+    from rapidfuzz import fuzz
+except ImportError:  # pragma: no cover - optional dependency
+    fuzz = None
 
 from app.core.config import get_settings
 
@@ -62,6 +67,7 @@ class RecipientResolver:
         self.sqlite_path = self._resolve_sqlite_path(sqlite_path or self.settings.recipient_sqlite_path)
         self._picker = picker
         self._top_k = max(1, int(self.settings.recipient_resolver_top_k))
+        self._recent_hits: dict[str, dict[str, Any]] = {}
 
     async def resolve(self, message: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Fill chat_id/user_id from local directory when only name hint is available."""
@@ -79,7 +85,10 @@ class RecipientResolver:
                 reason="missing_hint",
                 candidates=[],
             )
-        candidates = self._search_candidates(hint)
+        cached = self._get_recent_hit(hint=hint, payload=payload)
+        if cached is not None:
+            return cached
+        candidates = self._search_candidates_for_variants(hint)
         if not candidates:
             return self._mark_needs_confirmation(
                 payload=payload,
@@ -87,11 +96,6 @@ class RecipientResolver:
                 candidates=[],
             )
         selected_index = self._pick_by_rules(hint, candidates)
-        ambiguous = self._is_ambiguous(hint, candidates)
-        if self._should_try_llm_pick(hint=hint, candidates=candidates, selected_index=selected_index, ambiguous=ambiguous):
-            llm_index = await self._pick_index(hint, candidates)
-            if llm_index is not None:
-                selected_index = llm_index
         if selected_index is None:
             return self._mark_needs_confirmation(
                 payload=payload,
@@ -102,7 +106,7 @@ class RecipientResolver:
         resolved = dict(payload)
         resolved["resolved_name"] = selected.name
         resolved["resolution_status"] = "resolved"
-        resolved["resolution_method"] = "llm" if self.settings.recipient_resolver_use_llm and ambiguous else "rules"
+        resolved["resolution_method"] = "rules"
         resolved["resolution_score"] = round(float(selected.score), 4)
         if selected.entity_type == "chat":
             resolved["chat_id"] = selected.entity_id
@@ -110,7 +114,35 @@ class RecipientResolver:
         else:
             resolved["user_id"] = selected.entity_id
             resolved["chat_id"] = ""
+        self._remember_hit(hint=hint, resolved=resolved)
         return resolved
+
+    def _get_recent_hit(self, hint: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        normalized = self._normalize_text(hint)
+        if not normalized:
+            return None
+        cached = self._recent_hits.get(normalized)
+        if not cached:
+            return None
+        resolved = dict(payload)
+        resolved.update(cached)
+        resolved["resolution_method"] = "cache"
+        return resolved
+
+    def _remember_hit(self, hint: str, resolved: dict[str, Any]) -> None:
+        normalized = self._normalize_text(hint)
+        if not normalized:
+            return
+        self._recent_hits[normalized] = {
+            "chat_id": str(resolved.get("chat_id", "")).strip(),
+            "user_id": str(resolved.get("user_id", "")).strip(),
+            "resolved_name": str(resolved.get("resolved_name", "")).strip(),
+            "resolution_status": "resolved",
+            "resolution_score": float(resolved.get("resolution_score", 1.0) or 1.0),
+        }
+        if len(self._recent_hits) > 64:
+            oldest_key = next(iter(self._recent_hits))
+            self._recent_hits.pop(oldest_key, None)
 
     def _search_candidates(self, hint: str) -> list[RecipientCandidate]:
         db_path = Path(self.sqlite_path)
@@ -151,6 +183,16 @@ class RecipientResolver:
                 )
             )
         ranked.sort(key=lambda item: item.score, reverse=True)
+        return ranked[: self._top_k]
+
+    def _search_candidates_for_variants(self, hint: str) -> list[RecipientCandidate]:
+        merged: dict[str, RecipientCandidate] = {}
+        for variant in self._expand_alias(hint):
+            for candidate in self._search_candidates(variant):
+                previous = merged.get(candidate.entity_id)
+                if previous is None or candidate.score > previous.score:
+                    merged[candidate.entity_id] = candidate
+        ranked = sorted(merged.values(), key=lambda item: item.score, reverse=True)
         return ranked[: self._top_k]
 
     async def _pick_index(self, hint: str, candidates: list[RecipientCandidate]) -> int | None:
@@ -261,20 +303,27 @@ class RecipientResolver:
         base_text = RecipientResolver._normalize_text(searchable_text)
         if not base_text:
             return 0.0
-        ratio = SequenceMatcher(None, hint, base_text).ratio()
+        if fuzz is not None:
+            ratio = max(
+                float(fuzz.ratio(hint, base_text)) / 100.0,
+                float(fuzz.partial_ratio(hint, base_text)) / 100.0,
+            )
+        else:
+            ratio = SequenceMatcher(None, hint, base_text).ratio()
         bonus = 0.0
         if hint in base_text:
             bonus += 0.5
         if base_text.startswith(hint):
             bonus += 0.3
-        return ratio + bonus
+        return min(1.0, ratio + bonus)
 
     @staticmethod
     def _normalize_text(text: str) -> str:
         raw = str(text).strip().lower()
         for source, target in RecipientResolver.TYPO_MAP.items():
             raw = raw.replace(source, target)
-        return "".join(raw.split())
+        compact = re.sub(r"[\s_\-]+", "", raw)
+        return re.sub(r"[^0-9a-z\u4e00-\u9fff]", "", compact)
 
     @staticmethod
     def _is_generic_hint(hint: str) -> bool:
@@ -282,6 +331,22 @@ class RecipientResolver:
         if not normalized:
             return True
         return any(key in normalized for key in RecipientResolver.GENERIC_HINTS)
+
+    @staticmethod
+    def _expand_alias(hint: str) -> list[str]:
+        raw_hint = str(hint).strip()
+        variants: set[str] = {raw_hint}
+        normalized = RecipientResolver._normalize_text(raw_hint)
+        if not normalized:
+            return [raw_hint]
+        variants.add(normalized)
+        if normalized.startswith(("小", "老", "阿")) and len(normalized) >= 2:
+            variants.add(normalized[1:])
+        if len(normalized) == 1:
+            variants.add(f"小{normalized}")
+            variants.add(f"老{normalized}")
+            variants.add(f"阿{normalized}")
+        return [item for item in variants if item]
 
     def _is_ambiguous(self, hint: str, candidates: list[RecipientCandidate]) -> bool:
         if self._is_generic_hint(hint):

@@ -1,23 +1,23 @@
-﻿const detailItems = [
-	["链路 ID", "trace-demo-0425"],
-	["当前阶段", "CLI 执行中"],
-	["失败回退", "权限不足 / 页面控件缺失时进入 CUA"],
-	["下一步", "流式刷新、失败重试、详情页"],
-];
+type DetailItem = [string, string];
 
-export function ResultDetail() {
+type ResultDetailProps = {
+	title: string;
+	items: DetailItem[];
+};
+
+export function ResultDetail({ title, items }: ResultDetailProps) {
 	return (
 		<section className="panel result" aria-labelledby="result-title">
 			<div className="panel-title-row">
 				<div>
 					<p className="section-kicker">04 · 结果详情</p>
-					<h2 id="result-title">执行详情占位</h2>
+					<h2 id="result-title">{title}</h2>
 				</div>
 				<span className="wire-tag">Detail</span>
 			</div>
 
 			<dl className="detail-grid">
-				{detailItems.map(([label, value]) => (
+				{items.map(([label, value]) => (
 					<div key={label}>
 						<dt>{label}</dt>
 						<dd>{value}</dd>

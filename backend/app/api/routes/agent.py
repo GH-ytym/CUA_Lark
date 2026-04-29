@@ -22,9 +22,11 @@ from app.schemas.chat import (
     StateMachineResponse,
 )
 from app.services.intent_service import IntentService
+from app.services.lark_cli_service import LarkCliService
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 intent_service = IntentService()
+lark_cli_service = LarkCliService()
 
 MVP_CAPABILITIES: list[MvpCapability] = [
     MvpCapability(
@@ -114,6 +116,77 @@ async def get_cua_boundary() -> CuaBoundaryResponse:
 async def execute_command(payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
     """Accept one command and return task acceptance payload."""
     parsed = await intent_service.parse(message=payload.message, context_hint=payload.context_hint)
+    structured_payload = (
+        parsed.structured_command.get("payload", {})
+        if isinstance(parsed.structured_command, dict)
+        and isinstance(parsed.structured_command.get("payload"), dict)
+        else {}
+    )
+    if payload.confirmed_entity_id and parsed.intent_type == IntentType.MESSAGE_SEND:
+        structured_payload = dict(structured_payload)
+        candidates = structured_payload.get("resolution_candidates", [])
+        if isinstance(candidates, list):
+            for item in candidates:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("entity_id", "")).strip() != payload.confirmed_entity_id:
+                    continue
+                if str(item.get("entity_type", "")).strip() == "chat":
+                    structured_payload["chat_id"] = payload.confirmed_entity_id
+                    structured_payload["user_id"] = ""
+                else:
+                    structured_payload["user_id"] = payload.confirmed_entity_id
+                    structured_payload["chat_id"] = ""
+                structured_payload["resolved_name"] = str(item.get("name", "")).strip()
+                structured_payload["resolution_status"] = "resolved"
+                structured_payload["resolution_method"] = "user_confirmation"
+                parsed = parsed.model_copy(
+                    update={
+                        "structured_command": {
+                            "intent_type": parsed.intent_type.value,
+                            "payload": structured_payload,
+                        }
+                    }
+                )
+                break
+    needs_confirmation = (
+        parsed.intent_type == IntentType.MESSAGE_SEND
+        and str(structured_payload.get("resolution_status", "")).strip() == "needs_confirmation"
+    )
+    confirmation_message = ""
+    if needs_confirmation:
+        confirmation_message = "请先确认要发送给谁，再继续执行。"
+    execution_status = ExecutionStatus.QUEUED
+    execution_summary = "任务已受理，等待后续执行。"
+    cli_error_code = ""
+    cua_should_trigger = False
+    execution_payload: dict[str, object] = {}
+    can_execute_now = (
+        parsed.selected_executor.value == "cli"
+        and not needs_confirmation
+        and parsed.intent_type != IntentType.UNKNOWN
+    )
+    if can_execute_now:
+        cli_result = lark_cli_service.execute(intent=parsed.intent_type, payload=structured_payload, dry_run=False)
+        execution_payload = cli_result.payload
+        execution_summary = cli_result.summary
+        if cli_result.success:
+            execution_status = ExecutionStatus.COMPLETED
+        else:
+            execution_status = ExecutionStatus.CLI_FAILED
+            cli_error_code = cli_result.error_code.value if cli_result.error_code is not None else ""
+            triggerable_codes = {
+                LarkCliErrorCode.RATE_LIMIT.value,
+                LarkCliErrorCode.API_UNSUPPORTED.value,
+                LarkCliErrorCode.PERMISSION_DENIED.value,
+                LarkCliErrorCode.API_ERROR.value,
+                LarkCliErrorCode.RESULT_INVALID.value,
+                LarkCliErrorCode.USER_REQUESTED.value,
+                LarkCliErrorCode.HYBRID_TASK_REQUIRED.value,
+            }
+            cua_should_trigger = bool(
+                cli_error_code and cli_error_code in triggerable_codes
+            )
     return ExecuteCommandResponse(
         task_id=str(uuid4()),
         initial_status=ExecutionStatus.QUEUED,
@@ -121,5 +194,15 @@ async def execute_command(payload: ExecuteCommandRequest) -> ExecuteCommandRespo
         parsed_intent=parsed.intent_type,
         intent_reason=parsed.reason,
         action_plan=parsed.action_plan,
+        parse_source=parsed.parse_source,
+        structured_payload=structured_payload,
+        needs_confirmation=needs_confirmation,
+        confirmation_message=confirmation_message,
+        resolution_candidates=structured_payload.get("resolution_candidates", []),
+        execution_status=execution_status,
+        execution_summary=execution_summary,
+        cli_error_code=cli_error_code,
+        cua_should_trigger=cua_should_trigger,
+        execution_payload=execution_payload,
         accepted_at=datetime.now(UTC),
     )

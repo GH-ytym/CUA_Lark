@@ -37,8 +37,8 @@ class Settings(BaseSettings):
     recipient_sqlite_path: str = "data/lark_recipients.db"
     recipient_resolver_top_k: int = 12
     recipient_resolver_use_llm: bool = False
-    recipient_resolver_high_confidence: float = 0.92
-    recipient_resolver_min_confidence: float = 0.65
+    recipient_resolver_high_confidence: float = 0.90
+    recipient_resolver_min_confidence: float = 0.70
     recipient_resolver_ambiguity_gap: float = 0.15
 
 

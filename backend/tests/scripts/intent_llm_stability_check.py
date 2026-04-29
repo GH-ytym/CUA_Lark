@@ -57,6 +57,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Pretty-print the JSON result for easier inspection.",
     )
+    parser.add_argument(
+        "--parse-mode",
+        choices=("default", "fastpath", "force_llm"),
+        default="default",
+        help="Runtime parse mode override.",
+    )
+    parser.add_argument(
+        "--recipient-llm",
+        choices=("default", "on", "off"),
+        default="default",
+        help="Override recipient resolver llm usage.",
+    )
     return parser.parse_args()
 
 
@@ -86,7 +98,10 @@ def to_output_path(raw_path: str) -> Path:
     return path
 
 
-def build_report(message: str, results: list[dict[str, Any]]) -> dict[str, Any]:
+def build_report(
+    results: list[dict[str, Any]],
+    runtime_config: dict[str, Any],
+) -> dict[str, Any]:
     success_count = sum(1 for item in results if item["intent_type"] == "message_send")
     resolved_count = sum(
         1
@@ -123,6 +138,7 @@ def build_report(message: str, results: list[dict[str, Any]]) -> dict[str, Any]:
         group["resolved_target_rate"] = round(group["resolved_target_count"] / runs, 4)
 
     return {
+        "runtime_config": runtime_config,
         "messages": sorted(per_message.keys()),
         "runs": len(results),
         "message_send_count": success_count,
@@ -144,6 +160,7 @@ def dump_report(report: dict[str, Any], output_path: Path) -> None:
 async def main() -> None:
     args = parse_args()
     service = IntentService()
+    runtime_config = apply_runtime_mode(service=service, args=args)
     results: list[dict[str, Any]] = []
     output_path = to_output_path(args.save_path)
     messages = load_messages(args)
@@ -193,7 +210,7 @@ async def main() -> None:
             }
 
         results.append(one)
-        report = build_report(message=message, results=results)
+        report = build_report(results=results, runtime_config=runtime_config)
         dump_report(report=report, output_path=output_path)
         if not args.quiet:
             print(
@@ -201,7 +218,7 @@ async def main() -> None:
                 f"{one['intent_type']} | {one['resolution_status']} | {one['elapsed_ms']}ms"
             )
 
-    report = build_report(message=messages[0], results=results)
+    report = build_report(results=results, runtime_config=runtime_config)
     dump_report(report=report, output_path=output_path)
 
     if args.pretty:
@@ -224,6 +241,31 @@ def load_messages(args: argparse.Namespace) -> list[str]:
     if messages:
         return messages
     return ["跟梅家济说hello"]
+
+
+def apply_runtime_mode(service: IntentService, args: argparse.Namespace) -> dict[str, Any]:
+    parse_mode = str(args.parse_mode).strip().lower()
+    if parse_mode == "fastpath":
+        service.settings.intent_message_fastpath_enabled = True
+        service.settings.intent_require_llm = False
+    elif parse_mode == "force_llm":
+        service.settings.intent_message_fastpath_enabled = False
+        service.settings.intent_require_llm = True
+
+    recipient_llm = str(args.recipient_llm).strip().lower()
+    if recipient_llm == "on":
+        service.settings.recipient_resolver_use_llm = True
+    elif recipient_llm == "off":
+        service.settings.recipient_resolver_use_llm = False
+
+    return {
+        "parse_mode": parse_mode,
+        "intent_message_fastpath_enabled": bool(service.settings.intent_message_fastpath_enabled),
+        "intent_require_llm": bool(service.settings.intent_require_llm),
+        "recipient_resolver_use_llm": bool(service.settings.recipient_resolver_use_llm),
+        "minimax_configured": bool(service.settings.minimax_api_key),
+        "minimax_model": service.settings.minimax_model,
+    }
 
 
 if __name__ == "__main__":

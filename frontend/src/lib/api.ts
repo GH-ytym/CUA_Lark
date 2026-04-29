@@ -1,4 +1,4 @@
-﻿import type { FeishuRuntimeConfig } from "../types/execution";
+import type { ExecuteCommandResponse, FeishuRuntimeConfig } from "../types/execution";
 
 const getEnv = (key: string, fallback = "") => {
 	const value = import.meta.env[key] as string | undefined;
@@ -16,4 +16,33 @@ export function getFeishuRuntimeConfig(): FeishuRuntimeConfig {
 		entryUrl: configuredEntry,
 		isInFeishuClient: userAgent.includes("lark") || userAgent.includes("feishu"),
 	};
+}
+
+type ExecuteCommandPayload = {
+	message: string;
+	session_id: string;
+	user_id: string;
+	conversation_type?: string;
+	context_hint?: string;
+	confirmed_entity_id?: string;
+};
+
+export async function executeAgentCommand(
+	payload: ExecuteCommandPayload,
+): Promise<ExecuteCommandResponse> {
+	const config = getFeishuRuntimeConfig();
+	const response = await fetch(`${config.apiBaseUrl}/api/agent/execute`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			conversation_type: "chat",
+			context_hint: "",
+			...payload,
+		}),
+	});
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(errorText || `Request failed with status ${response.status}`);
+	}
+	return (await response.json()) as ExecuteCommandResponse;
 }

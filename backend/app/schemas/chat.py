@@ -23,6 +23,16 @@ class ExecuteCommandRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
     conversation_type: str = Field(default="chat", max_length=32)
     context_hint: str = Field(default="", max_length=1000)
+    confirmed_entity_id: str = Field(default="", max_length=128)
+
+
+class ResolutionCandidate(BaseModel):
+    """One candidate returned for user confirmation."""
+
+    name: str
+    entity_type: str
+    entity_id: str
+    score: float
 
 
 class ExecuteCommandResponse(BaseModel):
@@ -34,6 +44,16 @@ class ExecuteCommandResponse(BaseModel):
     parsed_intent: IntentType = IntentType.UNKNOWN
     intent_reason: str = ""
     action_plan: list[str] = Field(default_factory=list)
+    parse_source: str = ""
+    structured_payload: dict[str, object] = Field(default_factory=dict)
+    needs_confirmation: bool = False
+    confirmation_message: str = ""
+    resolution_candidates: list[ResolutionCandidate] = Field(default_factory=list)
+    execution_status: ExecutionStatus = ExecutionStatus.QUEUED
+    execution_summary: str = ""
+    cli_error_code: str = ""
+    cua_should_trigger: bool = False
+    execution_payload: dict[str, object] = Field(default_factory=dict)
     accepted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
