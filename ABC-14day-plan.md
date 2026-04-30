@@ -2,31 +2,33 @@
 
 ## A表（后端/编排负责人）
 
-| Day | 主任务                      | 当日验收标准                    | 备任务（若提前完成） |
-| --- | ------------------------ | ------------------------- | ---------- |
-| 1   | 冻结 MVP 能力范围；设计 Agent 状态机 | 产出状态流转图（解析/CLI/CUA/完成/失败） | 起草统一错误码    |
-| 2   | 搭 FastAPI 工程骨架、鉴权、中间件    | 本地可启动；鉴权通过/拒绝可验证          | 建立项目日志规范   |
-| 3   | 意图解析与 CLI 映射 v1          | 3类指令可解析出标准动作              | 增加参数缺失提示   |
-| 4   | 业务适配器：消息域（`lark-im`）      | 消息发送链路可执行并返回统一结构化结果        | 增加命令执行耗时统计 |
-| 5   | 业务适配器：日程域（`lark-calendar`） | 日程新增/改期至少2条路径可跑通            | 幂等键初版      |
-| 6   | 业务适配器：文档表格域（`lark-doc`/`lark-sheets`） | 文档或表格轻编辑至少1条成功，并统一错误分类输出 | CLI 错误分类细化 |
-| 7   | 回退路由：CLI失败转 CUA          | 出现失败码后可自动触发 CUA           | 回退原因写入日志   |
-| 8   | 超时、取消、重试机制               | 超时可中断；重试次数可配置             | 失败补偿策略草案   |
-| 9   | Redis 队列接入（异步任务）         | 任务可入队/消费/状态回传             | 并发参数压测     |
-| 10  | 可观测性（链路ID+结构化日志）         | 单次任务可完整追踪                 | 暴露调试查询接口   |
-| 11  | 后端单测与集成测试                | 核心路由与回退路径有测试覆盖            | 补充边界输入测试   |
-| 12  | 联调修复高优问题                 | P0/P1 后端问题清零              | 输出性能简报     |
-| 13  | 演示脚本与稳定数据集               | 演示脚本一次通过率高                | 准备答辩技术要点   |
-| 14  | 封板与发布说明                  | 冻结版本；发布文档可复现              | 预留现场应急脚本   |
+| Day | 主任务 | 当日验收标准 | 备任务（若提前完成） |
+| --- | --- | --- | --- |
+| 1 | 冻结 MVP 能力范围；设计 Agent 状态机 | 产出状态流转图（解析/确认/CLI/CUA/完成/失败/取消） | 起草统一错误码 |
+| 2 | 搭 FastAPI 工程骨架、请求上下文、基础配置 | 本地可启动；健康检查、CORS、请求链路 ID 可验证 | 建立项目日志规范 |
+| 3 | 意图解析与标准动作模型 v1 | 自然语言可解析为 `capability + payload + executor_hint` | 增加参数缺失提示 |
+| 4 | CLI 通用执行器与结果归一化 | 任意 CLI 调用可返回统一 `ExecutorResult`，含 stdout/stderr/耗时/错误码 | 增加 dry-run 调试模式 |
+| 5 | MVP 能力 1：`im.message_send` | 发消息链路可执行；支持联系人/群解析、幂等键、权限错误归一化 | 增加消息回复/搜索预研 |
+| 6 | 任务编排器 v1 | API 接收任务后可创建 `task_id`，驱动解析、确认、CLI 执行、状态落表/内存存储 | 暴露任务详情查询接口 |
+| 7 | CLI 失败到 CUA 的回退闭环 | CLI 失败后能组装 CUA 请求并触发 CUA 执行，回写最终状态 | 回退原因写入日志 |
+| 8 | 超时、取消、重试机制 | CLI/CUA 执行超时可中断；重试次数、退避策略可配置；取消接口可用 | 失败补偿策略草案 |
+| 9 | 执行进度流与前端联调接口 | `/executions/{task_id}/stream` 可输出 queued/running/fallback/completed/failed/canceled | 保留 Redis 队列接口设计 |
+| 10 | 可观测性（链路 ID + 结构化日志） | 单次任务可按 chain_id 完整追踪，含 CLI/CUA 步骤、耗时、失败原因 | 暴露调试查询接口 |
+| 11 | 扩展 MVP 能力 2：日程或文档二选一 | `calendar.create/reschedule` 或 `docs.create/update` 至少 1 条真实 CLI 链路跑通 | 记录未接能力的 CUA fallback 策略 |
+| 12 | 后端单测与集成测试 | 编排器、CLI 执行、取消/超时、CLI->CUA 回退路径有测试覆盖 | 补充边界输入测试 |
+| 13 | 演示脚本与稳定数据集 | 演示脚本一次通过率高；至少包含成功、权限失败、CUA 接管 3 类案例 | 准备答辩技术要点 |
+| 14 | 封板与发布说明 | 冻结版本；发布文档可复现；环境、权限、演示步骤清晰 | 预留现场应急脚本 |
 
-### A线 CLI Tool 业务分组（按业务做适配器）
+### A线 CLI Tool Capability Registry
 
-- 消息协同域：`lark-im`
-- 日程会议域：`lark-calendar`
-- 文档表格域：`lark-doc`、`lark-sheets`
-- 通讯录支撑域：`lark-contact`（用于补全人/群目标）
-- 任务支撑域：`lark-task`（用于执行后落任务）
-- 邮件支撑域：`lark-mail`（用于通知补充链路）
+将原来的“按业务做适配器”改为“Capability Registry”。
+
+- 核心抽象：`capability_id + cli_command + required_payload + identity + scopes + fallback_policy`
+- MVP 必做：`im.message_send`
+- 优先候选：`im.messages_reply`、`im.messages_search`、`calendar.create`、`calendar.reschedule`、`docs.create`、`docs.update`、`sheets.update`
+- 支撑能力：`contact.search` 用于人/群解析，`task.create` 用于执行后落待办，`mail.send` 用于通知补充链路
+- 编排器不直接按 `lark-im/lark-doc` 分支判断，只调用 capability registry 生成 CLI invocation
+- 未接入或执行失败的 capability 统一进入 CUA fallback 判断
 
 ## B表（CUA/视觉保底负责人）
 

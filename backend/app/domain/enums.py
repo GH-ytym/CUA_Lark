@@ -34,6 +34,31 @@ class IntentType(StrEnum):
     UNKNOWN = "unknown"
 
 
+class CapabilityId(StrEnum):
+    """Capability-level action identifiers used by the orchestrator."""
+
+    IM_MESSAGE_SEND = "im.message_send"
+    IM_MESSAGES_REPLY = "im.messages_reply"
+    IM_MESSAGES_SEARCH = "im.messages_search"
+    IM_CHAT_MESSAGES_LIST = "im.chat_messages_list"
+    IM_CHAT_SEARCH = "im.chat_search"
+    IM_CHAT_CREATE = "im.chat_create"
+    CALENDAR_RESCHEDULE = "calendar.reschedule"
+    CALENDAR_CREATE = "calendar.create"
+    CALENDAR_AGENDA = "calendar.agenda"
+    CALENDAR_FREEBUSY = "calendar.freebusy"
+    DOC_CREATE = "docs.create"
+    DOC_UPDATE = "docs.update"
+    DOC_SEARCH = "docs.search"
+    SHEET_UPDATE = "sheets.update"
+    SHEET_READ = "sheets.read"
+    CONTACT_SEARCH = "contact.search"
+    TASK_CREATE = "task.create"
+    MAIL_SEND = "mail.send"
+    BASE_RECORD_CREATE = "base.record_create"
+    UNKNOWN = "unknown"
+
+
 class LarkCliErrorCode(StrEnum):
     """CLI failure codes aligned to cua.trigger_rules.LarkCliError."""
 

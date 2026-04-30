@@ -8,10 +8,11 @@ import type { ExecuteCommandResponse, ResolutionCandidate, TaskCard, TimelineSte
 
 const SESSION_ID = "demo-session";
 const USER_ID = "demo-user";
+const MOCK_INJECTED_MESSAGE = "给梅家济发消息：“hello”";
 
 export function SidebarPage() {
 	const feishuConfig = getFeishuRuntimeConfig();
-	const [message, setMessage] = useState("");
+	const [message, setMessage] = useState(MOCK_INJECTED_MESSAGE);
 	const [loading, setLoading] = useState(false);
 	const [response, setResponse] = useState<ExecuteCommandResponse | null>(null);
 	const [error, setError] = useState("");

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from app.domain.enums import ExecutorType, IntentType
+from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
+from app.domain.models import ExecutorResult
 from app.main import create_app
 from app.services.intent_service import IntentDecision
 
@@ -79,17 +80,14 @@ def test_execute_applies_confirmed_entity_id(monkeypatch) -> None:
     monkeypatch.setattr(agent.intent_service, "parse", fake_parse)
     monkeypatch.setattr(
         agent.lark_cli_service,
-        "execute",
-        lambda *_, **__: type(
-            "CliResult",
-            (),
-            {
-                "success": True,
-                "summary": "executed 1 cli invocation(s)",
-                "payload": {"domain": "message", "dry_run": False, "steps": [], "error": None},
-                "error_code": None,
-            },
-        )(),
+        "execute_action",
+        lambda *_, **__: ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="executed 1 cli invocation(s)",
+            payload={"domain": "message", "dry_run": False, "steps": [], "error": None},
+        ),
     )
     client = TestClient(create_app())
     response = client.post(
@@ -139,17 +137,14 @@ def test_execute_runs_cli_when_already_resolved(monkeypatch) -> None:
     monkeypatch.setattr(agent.intent_service, "parse", fake_parse)
     monkeypatch.setattr(
         agent.lark_cli_service,
-        "execute",
-        lambda *_, **__: type(
-            "CliResult",
-            (),
-            {
-                "success": True,
-                "summary": "executed 1 cli invocation(s)",
-                "payload": {"domain": "message", "dry_run": False, "steps": [{"exit_code": 0}], "error": None},
-                "error_code": None,
-            },
-        )(),
+        "execute_action",
+        lambda *_, **__: ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="executed 1 cli invocation(s)",
+            payload={"domain": "message", "dry_run": False, "steps": [{"exit_code": 0}], "error": None},
+        ),
     )
     client = TestClient(create_app())
     response = client.post(
@@ -194,17 +189,20 @@ def test_execute_sets_cua_trigger_when_cli_failed(monkeypatch) -> None:
     monkeypatch.setattr(agent.intent_service, "parse", fake_parse)
     monkeypatch.setattr(
         agent.lark_cli_service,
-        "execute",
-        lambda *_, **__: type(
-            "CliResult",
-            (),
-            {
-                "success": False,
-                "summary": "cli command failed",
-                "payload": {"domain": "message", "dry_run": False, "steps": [{"exit_code": 2}], "error": {"code": "permission_denied"}},
-                "error_code": type("Err", (), {"value": "permission_denied"})(),
+        "execute_action",
+        lambda *_, **__: ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=False,
+            status=ExecutionStatus.CLI_FAILED,
+            summary="cli command failed",
+            error_code="permission_denied",
+            payload={
+                "domain": "message",
+                "dry_run": False,
+                "steps": [{"exit_code": 2}],
+                "error": {"code": "permission_denied"},
             },
-        )(),
+        ),
     )
     client = TestClient(create_app())
     response = client.post(

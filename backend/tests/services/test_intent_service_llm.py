@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from app.domain.enums import CapabilityId, ExecutorType
 from app.services.intent_service import IntentService
 
 
@@ -144,6 +145,26 @@ def test_message_fastpath_without_llm() -> None:
     assert decision.intent_type.value == "message_send"
     assert payload.get("chat_hint") == "梅家济"
     assert payload.get("text") == "hello"
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert decision.standard_action.executor_hint == ExecutorType.CLI
+    assert decision.standard_action.payload.get("text") == "hello"
+
+
+def test_message_fastpath_strips_send_message_verb() -> None:
+    service = IntentService()
+    message = "给梅家济发消息：“hello”"
+
+    async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = kwargs.get("payload", {})
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    service.recipient_resolver.resolve = unresolved_resolve  # type: ignore[method-assign]
+    decision = asyncio.run(service.parse(message))
+    payload = decision.structured_command.get("payload", {})
+
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert payload.get("chat_hint") == "梅家济"
+    assert payload.get("text") == "“hello”"
 
 
 def test_local_resolution_skips_llm() -> None:

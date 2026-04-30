@@ -13,6 +13,7 @@ from app.domain.enums import (
     LarkCliErrorCode,
 )
 from app.domain.models import MvpCapability, StateMachineSpec
+from app.domain.models import StandardAction
 
 
 class ExecuteCommandRequest(BaseModel):
@@ -45,6 +46,7 @@ class ExecuteCommandResponse(BaseModel):
     intent_reason: str = ""
     action_plan: list[str] = Field(default_factory=list)
     parse_source: str = ""
+    standard_action: StandardAction = Field(default_factory=StandardAction)
     structured_payload: dict[str, object] = Field(default_factory=dict)
     needs_confirmation: bool = False
     confirmation_message: str = ""
