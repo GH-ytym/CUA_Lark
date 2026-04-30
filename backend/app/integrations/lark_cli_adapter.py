@@ -11,6 +11,7 @@ from enum import StrEnum
 import subprocess
 from typing import Any
 
+from app.domain.capability_registry import get_capability_spec, normalize_payload
 from app.domain.enums import CapabilityId, IntentType
 
 
@@ -138,91 +139,21 @@ class LarkCliAdapter:
         intent: IntentType = IntentType.UNKNOWN,
     ) -> CliCallPlan:
         """Create a CLI plan from a normalized capability action."""
-        plan_specs = {
-            CapabilityId.IM_MESSAGES_REPLY: (BusinessDomain.MESSAGE, "lark-im", "messages_reply", "message_flow_failed"),
-            CapabilityId.IM_MESSAGES_SEARCH: (BusinessDomain.MESSAGE, "lark-im", "messages_search", "message_flow_failed"),
-            CapabilityId.IM_CHAT_MESSAGES_LIST: (BusinessDomain.MESSAGE, "lark-im", "chat_messages_list", "message_flow_failed"),
-            CapabilityId.IM_CHAT_SEARCH: (BusinessDomain.MESSAGE, "lark-im", "chat_search", "message_flow_failed"),
-            CapabilityId.IM_CHAT_CREATE: (BusinessDomain.MESSAGE, "lark-im", "chat_create", "message_flow_failed"),
-            CapabilityId.CALENDAR_CREATE: (BusinessDomain.CALENDAR, "lark-calendar", "event_create", "calendar_flow_failed"),
-            CapabilityId.CALENDAR_AGENDA: (BusinessDomain.CALENDAR, "lark-calendar", "agenda", "calendar_flow_failed"),
-            CapabilityId.CALENDAR_FREEBUSY: (BusinessDomain.CALENDAR, "lark-calendar", "freebusy", "calendar_flow_failed"),
-            CapabilityId.DOC_UPDATE: (BusinessDomain.DOC_SHEET, "lark-doc", "doc_update", "doc_sheet_flow_failed"),
-            CapabilityId.DOC_SEARCH: (BusinessDomain.DOC_SHEET, "lark-doc", "doc_search", "doc_sheet_flow_failed"),
-            CapabilityId.SHEET_READ: (BusinessDomain.DOC_SHEET, "lark-sheets", "sheet_read", "doc_sheet_flow_failed"),
-            CapabilityId.CONTACT_SEARCH: (BusinessDomain.CONTACT, "lark-contact", "contact_search", "contact_flow_failed"),
-            CapabilityId.TASK_CREATE: (BusinessDomain.TASK, "lark-task", "task_create", "task_flow_failed"),
-            CapabilityId.MAIL_SEND: (BusinessDomain.MAIL, "lark-mail", "mail_send", "mail_flow_failed"),
-            CapabilityId.BASE_RECORD_CREATE: (BusinessDomain.DOC_SHEET, "lark-base", "record_create", "base_flow_failed"),
-        }
-        if capability_id == CapabilityId.IM_MESSAGE_SEND:
-            return CliCallPlan(
-                intent=intent,
-                capability_id=capability_id,
-                domain=BusinessDomain.MESSAGE,
-                invocations=(
-                    CliInvocation(
-                        tool_family="lark-im",
-                        operation="message_send",
-                        arguments={
-                            "chat_hint": payload.get("chat_hint", ""),
-                            "chat_id": payload.get("chat_id", ""),
-                            "user_id": payload.get("user_id", ""),
-                            "text": payload.get("text", payload.get("message", "")),
-                            "idempotency_key": payload.get("idempotency_key", ""),
-                            "identity": payload.get("identity", "user"),
-                        },
-                    ),
-                ),
-                fallback_hint="message_flow_failed",
-            )
-        if capability_id in plan_specs:
-            domain, tool_family, operation, fallback_hint = plan_specs[capability_id]
+        spec = get_capability_spec(capability_id)
+        if spec is not None:
+            domain = self._domain_for_capability(capability_id)
             return CliCallPlan(
                 intent=intent,
                 capability_id=capability_id,
                 domain=domain,
                 invocations=(
                     CliInvocation(
-                        tool_family=tool_family,
-                        operation=operation,
-                        arguments=payload,
+                        tool_family=spec.cli_tool_family,
+                        operation=spec.cli_operation,
+                        arguments=normalize_payload(capability_id, payload),
                     ),
                 ),
-                fallback_hint=fallback_hint,
-            )
-        if capability_id == CapabilityId.CALENDAR_RESCHEDULE:
-            return CliCallPlan(
-                intent=intent,
-                capability_id=capability_id,
-                domain=BusinessDomain.CALENDAR,
-                invocations=(
-                    CliInvocation(
-                        tool_family="lark-calendar",
-                        operation="event_reschedule",
-                        arguments={
-                            "event_hint": payload.get("event_hint", ""),
-                            "target_time": payload.get("target_time", ""),
-                        },
-                    ),
-                ),
-                fallback_hint="calendar_flow_failed",
-            )
-        if capability_id in {CapabilityId.DOC_CREATE, CapabilityId.SHEET_UPDATE}:
-            operation = "doc_create" if capability_id == CapabilityId.DOC_CREATE else "sheet_write"
-            tool_family = "lark-doc" if capability_id == CapabilityId.DOC_CREATE else "lark-sheets"
-            return CliCallPlan(
-                intent=intent,
-                capability_id=capability_id,
-                domain=BusinessDomain.DOC_SHEET,
-                invocations=(
-                    CliInvocation(
-                        tool_family=tool_family,
-                        operation=operation,
-                        arguments=payload,
-                    ),
-                ),
-                fallback_hint="doc_sheet_flow_failed",
+                fallback_hint=f"{domain.value}_flow_failed",
             )
         return CliCallPlan(
             intent=intent,
@@ -231,6 +162,22 @@ class LarkCliAdapter:
             invocations=tuple(),
             fallback_hint="unsupported_intent_for_cli",
         )
+
+    @staticmethod
+    def _domain_for_capability(capability_id: CapabilityId) -> BusinessDomain:
+        if capability_id.value.startswith("im."):
+            return BusinessDomain.MESSAGE
+        if capability_id.value.startswith("calendar."):
+            return BusinessDomain.CALENDAR
+        if capability_id.value.startswith(("docs.", "sheets.", "base.")):
+            return BusinessDomain.DOC_SHEET
+        if capability_id.value.startswith("contact."):
+            return BusinessDomain.CONTACT
+        if capability_id.value.startswith("task."):
+            return BusinessDomain.TASK
+        if capability_id.value.startswith("mail."):
+            return BusinessDomain.MAIL
+        return BusinessDomain.UNKNOWN
 
     def build_command(
         self,
@@ -241,6 +188,10 @@ class LarkCliAdapter:
         """Convert one invocation into a concrete lark-cli command argv."""
         if invocation.tool_family == "lark-im" and invocation.operation == "message_send":
             return self._build_im_message_send(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-im" and invocation.operation == "messages_search":
+            return self._build_im_messages_search(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-im" and invocation.operation == "messages_reply":
+            return self._build_im_messages_reply(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
         raise ValueError(
             f"unsupported cli invocation: tool={invocation.tool_family}, operation={invocation.operation}"
         )
@@ -267,6 +218,57 @@ class LarkCliAdapter:
             command.extend(["--chat-id", chat_id])
         else:
             command.extend(["--user-id", user_id])
+        idempotency_key = str(arguments.get("idempotency_key", "")).strip()
+        if idempotency_key:
+            command.extend(["--idempotency-key", idempotency_key])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_im_messages_search(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        query = str(arguments.get("query", "")).strip()
+        if not query:
+            raise ValueError("missing query for lark-im +messages-search")
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
+        if identity != "user":
+            raise ValueError("lark-im +messages-search requires user identity")
+        command = [cli_bin, "im", "+messages-search", "--as", identity, "--query", query]
+        chat_id = str(arguments.get("chat_id", "")).strip()
+        if chat_id:
+            command.extend(["--chat-id", chat_id])
+        start_time = str(arguments.get("start_time", "")).strip()
+        if start_time:
+            command.extend(["--start-time", start_time])
+        end_time = str(arguments.get("end_time", "")).strip()
+        if end_time:
+            command.extend(["--end-time", end_time])
+        limit = arguments.get("limit")
+        if isinstance(limit, int) and limit > 0:
+            command.extend(["--page-limit", str(limit)])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_im_messages_reply(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        text = str(arguments.get("text", "")).strip()
+        if not text:
+            raise ValueError("missing text for lark-im +messages-reply")
+        message_id = str(arguments.get("message_id", "")).strip()
+        thread_id = str(arguments.get("thread_id", "")).strip()
+        if not message_id and not thread_id:
+            raise ValueError("missing message_id/thread_id for lark-im +messages-reply")
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
+        if identity not in {"bot", "user"}:
+            raise ValueError("identity must be bot or user")
+        command = [cli_bin, "im", "+messages-reply", "--as", identity, "--text", text]
+        if message_id:
+            command.extend(["--message-id", message_id])
+        if thread_id:
+            command.extend(["--thread-id", thread_id])
+        if bool(arguments.get("reply_in_thread", False)):
+            command.append("--reply-in-thread")
         idempotency_key = str(arguments.get("idempotency_key", "")).strip()
         if idempotency_key:
             command.extend(["--idempotency-key", idempotency_key])

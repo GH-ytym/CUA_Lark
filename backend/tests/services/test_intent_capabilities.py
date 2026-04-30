@@ -36,7 +36,7 @@ def test_rule_parser_maps_main_capabilities(
     expected_payload: dict[str, object],
 ) -> None:
     service = IntentService()
-    service.settings.minimax_api_key = ""
+    service.settings.dashscope_api_key = ""
     service.settings.intent_message_fastpath_enabled = True
 
     async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:

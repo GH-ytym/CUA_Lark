@@ -1,0 +1,102 @@
+[
+  {
+    "id": "im_send_zh",
+    "message": "给梅家济发消息：“hello”",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "梅家济",
+      "text": "“hello”"
+    }
+  },
+  {
+    "id": "im_send_casual",
+    "message": "跟项目群说今晚九点发布",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "项目群",
+      "text": "今晚九点发布"
+    }
+  },
+  {
+    "id": "im_search_zh",
+    "message": "搜索项目群里关于发布的消息",
+    "expected_capability_id": "im.messages_search",
+    "expected_payload": {
+      "query": "发布"
+    }
+  },
+  {
+    "id": "im_reply_zh",
+    "message": "回复上一条消息：收到",
+    "expected_capability_id": "im.messages_reply",
+    "expected_payload": {
+      "text": "收到"
+    }
+  },
+  {
+    "id": "calendar_create_zh",
+    "message": "安排会议，标题叫项目复盘，明天下午三点到四点，邀请梅家济",
+    "expected_capability_id": "calendar.create",
+    "expected_payload": {
+      "title": "项目复盘"
+    }
+  },
+  {
+    "id": "calendar_reschedule_zh",
+    "message": "帮我把明天下午三点的会议改到四点",
+    "expected_capability_id": "calendar.reschedule",
+    "expected_payload": {
+      "target_time": "四点"
+    }
+  },
+  {
+    "id": "docs_create_zh",
+    "message": "帮我创建一个文档，标题叫项目复盘",
+    "expected_capability_id": "docs.create",
+    "expected_payload": {
+      "title": "项目复盘"
+    }
+  },
+  {
+    "id": "docs_search_zh",
+    "message": "搜索文档项目复盘",
+    "expected_capability_id": "docs.search",
+    "expected_payload": {
+      "query": "项目复盘"
+    }
+  },
+  {
+    "id": "sheets_update_zh",
+    "message": "把表格A1更新为hello",
+    "expected_capability_id": "sheets.update",
+    "expected_payload": {
+      "cell": "A1",
+      "value": "hello"
+    }
+  },
+  {
+    "id": "contact_search_zh",
+    "message": "搜索联系人梅家济",
+    "expected_capability_id": "contact.search",
+    "expected_payload": {
+      "query": "梅家济"
+    }
+  },
+  {
+    "id": "task_create_zh",
+    "message": "给张三创建一个任务：明天下午三点前提交周报",
+    "expected_capability_id": "task.create",
+    "expected_payload": {
+      "title": "明天下午三点前提交周报"
+    }
+  },
+  {
+    "id": "mail_send_zh",
+    "message": "给李四发邮件，主题是会议纪要，内容是请查收附件",
+    "expected_capability_id": "mail.send",
+    "expected_payload": {
+      "subject": "会议纪要",
+      "body": "请查收附件"
+    }
+  }
+]

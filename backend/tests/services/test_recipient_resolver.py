@@ -119,7 +119,7 @@ def test_no_llm_ranking_even_if_enabled(tmp_path: Path) -> None:
 
     resolver = RecipientResolver(sqlite_path=str(db_path), picker=must_not_be_called)
     resolver.settings.recipient_resolver_use_llm = True
-    resolver.settings.minimax_api_key = "fake-key"
+    resolver.settings.dashscope_api_key = "fake-key"
     payload = {"chat_hint": "项目群", "chat_id": "", "user_id": "", "text": "今晚发布"}
     resolved = asyncio.run(resolver.resolve(message="发送消息给项目群", payload=payload))
     assert resolved["chat_id"] == "oc_proj"

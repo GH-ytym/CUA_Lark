@@ -1,4 +1,4 @@
-"""Manual stability check for IntentService with real MiniMax calls."""
+"""Manual stability check for IntentService with real Qwen calls."""
 
 from __future__ import annotations
 
@@ -263,8 +263,8 @@ def apply_runtime_mode(service: IntentService, args: argparse.Namespace) -> dict
         "intent_message_fastpath_enabled": bool(service.settings.intent_message_fastpath_enabled),
         "intent_require_llm": bool(service.settings.intent_require_llm),
         "recipient_resolver_use_llm": bool(service.settings.recipient_resolver_use_llm),
-        "minimax_configured": bool(service.settings.minimax_api_key),
-        "minimax_model": service.settings.minimax_model,
+        "qwen_configured": bool(service.settings.dashscope_api_key),
+        "qwen_model": service.settings.qwen_model,
     }
 
 

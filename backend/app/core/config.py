@@ -26,12 +26,12 @@ class Settings(BaseSettings):
     lark_cli_workdir: str = ""
     cua_max_steps: int = 20
 
-    minimax_api_key: str = ""
-    minimax_chat_url: str = "https://api.minimax.chat/v1/chat/completions"
-    minimax_model: str = "MiniMax-M2.5"
-    minimax_timeout_seconds: int = 20
-    minimax_intent_timeout_seconds: int = 12
-    minimax_recipient_timeout_seconds: int = 4
+    dashscope_api_key: str = ""
+    qwen_chat_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    qwen_model: str = "qwen3.6-plus"
+    qwen_timeout_seconds: int = 20
+    qwen_intent_timeout_seconds: int = 20
+    qwen_recipient_timeout_seconds: int = 6
     intent_require_llm: bool = False
     intent_message_fastpath_enabled: bool = True
     recipient_sqlite_path: str = "data/lark_recipients.db"

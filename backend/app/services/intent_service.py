@@ -1,4 +1,4 @@
-"""Intent service backed by MiniMax with deterministic fallback parsing."""
+"""Intent service backed by Qwen with deterministic fallback parsing."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import httpx
 from pydantic import Field
 
 from app.core.config import get_settings
+from app.domain.capability_registry import normalize_payload
 from app.domain.enums import CapabilityId, ExecutorType, IntentType
 from app.domain.models import StandardAction
 from app.schemas.chat import ParsePreviewResponse
@@ -36,39 +37,49 @@ class IntentService:
     async def parse(self, message: str, context_hint: str = "") -> IntentDecision:
         """Parse intent and generate normalized plan."""
         lowered = message.lower()
+        if self.settings.dashscope_api_key:
+            llm_result = await self._parse_with_llm(message=message, context_hint=context_hint)
+            if llm_result is not None:
+                return llm_result
+            if self.settings.intent_require_llm:
+                return IntentDecision(
+                    intent_type=IntentType.UNKNOWN,
+                    reason="llm parse failed and rules fallback disabled",
+                    action_plan=["请用户重述需求或稍后重试"],
+                    selected_executor=ExecutorType.NONE,
+                    parse_source="qwen_required",
+                    standard_action=self._build_standard_action(
+                        intent=IntentType.UNKNOWN,
+                        payload={},
+                        capability_id=CapabilityId.UNKNOWN,
+                    ),
+                    structured_command={
+                        "intent_type": IntentType.UNKNOWN.value,
+                        "capability_id": CapabilityId.UNKNOWN.value,
+                        "payload": {},
+                    },
+                )
+
         if self.settings.intent_message_fastpath_enabled and self._looks_like_message_send_command(message, lowered):
             fast_decision = self._build_message_fastpath_decision(message=message)
             return await self._resolve_message_recipient(decision=fast_decision, message=message)
         local_message_decision = await self._try_message_without_llm(message=message, lowered=lowered)
         if local_message_decision is not None:
             return local_message_decision
-        llm_result = await self._parse_with_llm(message=message, context_hint=context_hint)
-        if llm_result is not None:
-            return llm_result
-        if self.settings.minimax_api_key and self.settings.intent_require_llm:
-            return IntentDecision(
-                intent_type=IntentType.UNKNOWN,
-                reason="llm parse failed and rules fallback disabled",
-                action_plan=["请用户重述需求或稍后重试"],
-                selected_executor=ExecutorType.NONE,
-                parse_source="minimax_required",
-                standard_action=self._build_standard_action(intent=IntentType.UNKNOWN, payload={}),
-                structured_command={"intent_type": IntentType.UNKNOWN.value, "payload": {}},
-            )
         return await self._parse_with_rules(message)
 
     async def _parse_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
-        """Call MiniMax with one-shot intent parse and robust fallback handling."""
-        if not self.settings.minimax_api_key:
+        """Call Qwen with one-shot intent parse and robust fallback handling."""
+        if not self.settings.dashscope_api_key:
             return None
         intent_raw, llm_error = await self._request_llm_json(
             system_prompt=self._intent_prompt(),
             user_payload={"message": message, "context_hint": context_hint},
-            max_tokens=96,
+            max_tokens=256,
             contract_hint=self._intent_contract_hint(),
             allow_repair=True,
             allow_retry=True,
-            timeout_seconds=max(1, int(self.settings.minimax_intent_timeout_seconds)),
+            timeout_seconds=max(1, int(self.settings.qwen_intent_timeout_seconds)),
         )
         normalized_intent = self._normalize_intent_payload(intent_raw)
         lowered = message.lower()
@@ -86,18 +97,23 @@ class IntentService:
         intent = self._to_intent_type(str(normalized_intent.get("intent_type", "unknown")))
         if capability_id != CapabilityId.UNKNOWN:
             intent = self._intent_for_capability(capability_id)
-        reason = str(normalized_intent.get("reason", "parsed by minimax")).strip()[:200]
+        reason = str(normalized_intent.get("reason", "parsed by qwen")).strip()[:200]
         plan = self._normalize_plan(normalized_intent.get("action_plan"))
         entities_raw = normalized_intent.get("entities")
         entities = entities_raw if isinstance(entities_raw, dict) else {}
         if not entities and isinstance(normalized_intent.get("payload"), dict):
             entities = dict(normalized_intent["payload"])
-        if intent == IntentType.UNKNOWN and self._looks_like_message_send_command(message, lowered):
-            intent = IntentType.MESSAGE_SEND
-            reason = "口语表达命中消息发送语义"
-            entities = self._extract_message_entities(message)
-            plan = self._normalize_plan(["定位接收对象", "整理消息正文", "发送消息"])
-            capability_id = CapabilityId.IM_MESSAGE_SEND
+        capability_id, intent, entities, reason = self._repair_llm_action(
+            message=message,
+            lowered=lowered,
+            capability_id=capability_id,
+            intent=intent,
+            entities=entities,
+            reason=reason,
+        )
+        local_payload = self._payload_for_capability(capability_id, message)
+        if capability_id != CapabilityId.UNKNOWN:
+            entities = self._merge_payload_defaults(entities, local_payload)
 
         structured_command = self._build_structured_command(
             intent=intent,
@@ -110,10 +126,10 @@ class IntentService:
             capability_id = self._capability_for_intent(intent)
         decision = IntentDecision(
             intent_type=intent,
-            reason=reason or "parsed by minimax",
+            reason=reason or "parsed by qwen",
             action_plan=plan,
             selected_executor=self._executor_for(intent),
-            parse_source="minimax",
+            parse_source="qwen",
             standard_action=self._build_standard_action(
                 intent=intent,
                 payload=payload,
@@ -188,7 +204,7 @@ class IntentService:
         timeout_seconds: int,
     ) -> tuple[str, str | None]:
         payload = {
-            "model": self.settings.minimax_model,
+            "model": self.settings.qwen_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
@@ -197,12 +213,12 @@ class IntentService:
             "temperature": 0,
         }
         headers = {
-            "Authorization": f"Bearer {self.settings.minimax_api_key}",
+            "Authorization": f"Bearer {self.settings.dashscope_api_key}",
             "Content-Type": "application/json",
         }
         try:
             async with httpx.AsyncClient(timeout=max(1, timeout_seconds)) as client:
-                response = await client.post(self.settings.minimax_chat_url, headers=headers, json=payload)
+                response = await client.post(self.settings.qwen_chat_url, headers=headers, json=payload)
                 response.raise_for_status()
                 content = str(response.json()["choices"][0]["message"]["content"])
                 return content, None
@@ -227,11 +243,12 @@ class IntentService:
             payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
             if capability_id == CapabilityId.IM_MESSAGE_SEND:
                 payload = self._normalize_message_entities(payload) or payload
+            payload = normalize_payload(capability_id, payload)
             intent = self._intent_for_capability(capability_id)
             return {
                 "intent_type": intent.value,
                 "capability_id": capability_id.value,
-                "reason": str(data.get("reason", "parsed by minimax")).strip()[:200] or "parsed by minimax",
+                "reason": str(data.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
                 "action_plan": self._normalize_plan(data.get("action_plan")),
                 "entities": payload,
             }
@@ -239,12 +256,16 @@ class IntentService:
         target = str(data.get("target", "")).strip()
         msg = str(data.get("message", "")).strip()
         if action in {"greeting", "message", "send_message"}:
+            payload = normalize_payload(
+                CapabilityId.IM_MESSAGE_SEND,
+                {"chat_hint": target, "chat_id": "", "user_id": "", "text": msg},
+            )
             return {
                 "intent_type": "message_send",
                 "capability_id": CapabilityId.IM_MESSAGE_SEND.value,
                 "reason": "用户希望发送消息",
                 "action_plan": ["定位接收对象", "整理消息正文", "发送消息"],
-                "entities": {"chat_hint": target, "chat_id": "", "user_id": "", "text": msg},
+                "entities": payload,
             }
 
         intent = self._to_intent_type(str(data.get("intent_type", "unknown")))
@@ -252,11 +273,13 @@ class IntentService:
         entities = entities_raw if isinstance(entities_raw, dict) else {}
         if intent == IntentType.MESSAGE_SEND:
             entities = self._normalize_message_entities(entities) or {}
+        capability_id = self._capability_for_intent(intent)
+        entities = normalize_payload(capability_id, entities)
 
         return {
             "intent_type": intent.value,
-            "capability_id": self._capability_for_intent(intent).value,
-            "reason": str(data.get("reason", "parsed by minimax")).strip()[:200] or "parsed by minimax",
+            "capability_id": capability_id.value,
+            "reason": str(data.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
             "action_plan": self._normalize_plan(data.get("action_plan")),
             "entities": entities,
         }
@@ -295,15 +318,24 @@ class IntentService:
     @staticmethod
     def _intent_prompt() -> str:
         return (
-            "你是飞书任务解析器。只输出一个 JSON 对象，不要 markdown、解释、思考过程。"
-            "固定字段：capability_id, reason, action_plan, payload。"
+            "你是飞书任务解析器。把用户自然语言解析成可执行的标准动作。"
+            "只输出一个 JSON 对象，不要 markdown、解释、思考过程。"
+            "固定字段：capability_id, reason, action_plan, payload, missing_fields。"
             "capability_id 必须是：im.message_send|im.messages_reply|im.messages_search|"
             "im.chat_messages_list|im.chat_search|im.chat_create|calendar.create|calendar.reschedule|"
             "calendar.agenda|calendar.freebusy|docs.create|docs.update|docs.search|sheets.update|"
             "sheets.read|contact.search|task.create|mail.send|base.record_create|unknown。"
-            "payload 放任务参数；不确定的参数给空字符串，不要杜撰 ID。"
-            "例如发消息 payload 至少含 chat_hint/chat_id/user_id/text；文档创建含 title/content；"
-            "日程创建含 title/start_time/end_time/attendees；搜索含 query。"
+            "payload 放任务参数；不确定的参数给空字符串或空数组，不要杜撰 ID。"
+            "missing_fields 列出执行该能力仍缺失的关键参数。"
+            "发消息 payload：chat_hint, chat_id, user_id, text。"
+            "消息回复 payload：message_id, thread_id, message_hint, text。"
+            "消息搜索 payload：query, chat_hint, sender_hint, start_time, end_time。"
+            "日程创建 payload：title, start_time, end_time, attendees, location。"
+            "日程改期 payload：event_hint, source_time, target_time。"
+            "文档创建 payload：title, content, folder_token。"
+            "表格更新 payload：spreadsheet_token, sheet_id, cell, value。"
+            "用户说“给X发消息：Y”必须是 im.message_send，payload.chat_hint=X, payload.text=Y。"
+            "用户说“搜索...消息”必须是 im.messages_search；用户说“回复...”必须是 im.messages_reply。"
         )
 
     @staticmethod
@@ -318,10 +350,11 @@ class IntentService:
     @staticmethod
     def _intent_contract_hint() -> str:
         return (
-            '{"capability_id":"im.message_send|docs.create|calendar.create|unknown",'
+            '{"capability_id":"im.message_send|im.messages_search|docs.create|calendar.create|unknown",'
             '"reason":"...",'
             '"action_plan":["..."],'
-            '"payload":{"query":"","title":"","chat_hint":"","text":""}}'
+            '"payload":{"query":"","title":"","chat_hint":"","text":""},'
+            '"missing_fields":[]}'
         )
 
     @staticmethod
@@ -440,6 +473,33 @@ class IntentService:
         if capability_id == CapabilityId.BASE_RECORD_CREATE:
             return {"base_hint": self._extract_sheet_hint(message), "record": {"raw": message}}
         return {}
+
+    def _repair_llm_action(
+        self,
+        message: str,
+        lowered: str,
+        capability_id: CapabilityId,
+        intent: IntentType,
+        entities: dict[str, Any],
+        reason: str,
+    ) -> tuple[CapabilityId, IntentType, dict[str, Any], str]:
+        local_capability = self._classify_capability(message=message, lowered=lowered)
+        if capability_id == CapabilityId.UNKNOWN and local_capability != CapabilityId.UNKNOWN:
+            capability_id = local_capability
+            intent = self._intent_for_capability(capability_id)
+            entities = self._merge_payload_defaults(entities, self._payload_for_capability(capability_id, message))
+            reason = f"{reason}; repaired_by_rules:{capability_id.value}"
+        elif capability_id != CapabilityId.UNKNOWN and intent == IntentType.UNKNOWN:
+            intent = self._intent_for_capability(capability_id)
+        return capability_id, intent, entities, reason
+
+    @staticmethod
+    def _merge_payload_defaults(payload: dict[str, Any], defaults: dict[str, object]) -> dict[str, Any]:
+        merged = dict(defaults)
+        for key, value in payload.items():
+            if value not in ("", None, []):
+                merged[key] = value
+        return merged
 
     @staticmethod
     def _extract_after_colon(message: str) -> str:
@@ -680,10 +740,11 @@ class IntentService:
     ) -> dict[str, Any]:
         resolved_capability = capability_id or self._capability_for_intent(intent)
         if resolved_capability != CapabilityId.IM_MESSAGE_SEND:
+            normalized_payload = normalize_payload(resolved_capability, dict(entities))
             return {
                 "intent_type": intent.value,
                 "capability_id": resolved_capability.value,
-                "payload": dict(entities),
+                "payload": normalized_payload,
             }
         fallback_entities = self._extract_message_entities(message)
         merged_entities = {
@@ -697,6 +758,7 @@ class IntentService:
                 )
             ).strip(),
         }
+        merged_entities = normalize_payload(resolved_capability, merged_entities)
         return {
             "intent_type": intent.value,
             "capability_id": resolved_capability.value,

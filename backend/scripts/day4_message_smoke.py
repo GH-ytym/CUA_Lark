@@ -138,7 +138,7 @@ async def run(rounds: int, db_path: Path, report_path: Path) -> Path:
         f"- 测试轮次：`{rounds}`（总用例执行 `{total_runs}` 次）",
         "- 说明：执行链路走 `LarkCliService.execute`，并统一使用 `--dry-run` 防止真实发消息。",
         "",
-        "| 轮次 | 编号 | 自然语言消息 | 理论 CLI 真实命令（dry-run） | MiniMax/规则结构化命令 | 结构化命令生成 CLI | 对比结论 | 执行结果 |",
+        "| 轮次 | 编号 | 自然语言消息 | 理论 CLI 真实命令（dry-run） | Qwen/规则结构化命令 | 结构化命令生成 CLI | 对比结论 | 执行结果 |",
         "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for round_idx in range(1, rounds + 1):

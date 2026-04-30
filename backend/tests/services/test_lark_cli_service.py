@@ -60,6 +60,46 @@ def test_execute_action_returns_executor_result(monkeypatch) -> None:
     assert result.payload["steps"][0]["exit_code"] == 0
 
 
+def test_message_search_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_MESSAGES_SEARCH,
+            payload={"query": "发布", "chat_id": "oc_demo", "limit": 3},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "im", "+messages-search", "--as"]
+    assert "--query" in argv
+    assert "发布" in argv
+    assert "--chat-id" in argv
+    assert "oc_demo" in argv
+    assert "--dry-run" in argv
+
+
+def test_message_reply_requires_message_target() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_MESSAGES_REPLY,
+            payload={"text": "收到"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    try:
+        service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+    except ValueError as exc:
+        assert "missing message_id/thread_id" in str(exc)
+    else:
+        raise AssertionError("reply without message_id/thread_id should fail")
+
+
 def test_execute_invalid_payload_returns_result_invalid() -> None:
     service = LarkCliService()
     result = service.execute(

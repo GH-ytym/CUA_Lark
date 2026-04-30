@@ -1,4 +1,4 @@
-"""Resolve message recipients from local SQLite directory with MiniMax ranking."""
+"""Resolve message recipients from local SQLite directory with optional Qwen ranking."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class RecipientCandidate:
 
 
 class RecipientResolver:
-    """Resolve message recipient by name using local index plus MiniMax fuzzy ranking."""
+    """Resolve message recipient by name using local index plus optional Qwen fuzzy ranking."""
 
     GENERIC_HINTS = {
         "他们",
@@ -203,10 +203,10 @@ class RecipientResolver:
             return picked if isinstance(picked, int) else None
         if not self.settings.recipient_resolver_use_llm:
             return None
-        return await self._pick_index_with_minimax(hint, candidates)
+        return await self._pick_index_with_qwen(hint, candidates)
 
-    async def _pick_index_with_minimax(self, hint: str, candidates: list[RecipientCandidate]) -> int | None:
-        if not self.settings.minimax_api_key:
+    async def _pick_index_with_qwen(self, hint: str, candidates: list[RecipientCandidate]) -> int | None:
+        if not self.settings.dashscope_api_key:
             return None
         prompt = (
             "你是飞书接收对象匹配器。"
@@ -224,7 +224,7 @@ class RecipientResolver:
             for idx, item in enumerate(candidates)
         ]
         payload = {
-            "model": self.settings.minimax_model,
+            "model": self.settings.qwen_model,
             "messages": [
                 {"role": "system", "content": prompt},
                 {
@@ -239,13 +239,13 @@ class RecipientResolver:
             "temperature": 0.1,
         }
         headers = {
-            "Authorization": f"Bearer {self.settings.minimax_api_key}",
+            "Authorization": f"Bearer {self.settings.dashscope_api_key}",
             "Content-Type": "application/json",
         }
         try:
-            timeout_seconds = max(1, int(self.settings.minimax_recipient_timeout_seconds))
+            timeout_seconds = max(1, int(self.settings.qwen_recipient_timeout_seconds))
             async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                response = await client.post(self.settings.minimax_chat_url, headers=headers, json=payload)
+                response = await client.post(self.settings.qwen_chat_url, headers=headers, json=payload)
                 response.raise_for_status()
                 content = response.json()["choices"][0]["message"]["content"]
         except Exception:
@@ -366,7 +366,7 @@ class RecipientResolver:
     ) -> bool:
         if not self.settings.recipient_resolver_use_llm:
             return False
-        if not self.settings.minimax_api_key:
+        if not self.settings.dashscope_api_key:
             return False
         if not candidates:
             return False

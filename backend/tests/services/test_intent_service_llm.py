@@ -7,7 +7,7 @@ from app.services.intent_service import IntentService
 
 def test_llm_two_stage_message_parse() -> None:
     service = IntentService()
-    service.settings.minimax_api_key = "test-key"
+    service.settings.dashscope_api_key = "test-key"
     service.settings.intent_message_fastpath_enabled = False
 
     async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
@@ -37,7 +37,7 @@ def test_llm_two_stage_message_parse() -> None:
     service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("跟梅家济说hello"))
     payload = decision.structured_command.get("payload", {})
-    assert decision.parse_source == "minimax"
+    assert decision.parse_source == "qwen"
     assert decision.intent_type.value == "message_send"
     assert payload.get("chat_hint") == "梅家济"
     assert payload.get("text") == "hello"
@@ -45,7 +45,7 @@ def test_llm_two_stage_message_parse() -> None:
 
 def test_llm_skips_second_stage_when_entities_complete() -> None:
     service = IntentService()
-    service.settings.minimax_api_key = "test-key"
+    service.settings.dashscope_api_key = "test-key"
     service.settings.intent_message_fastpath_enabled = False
 
     async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
@@ -73,14 +73,14 @@ def test_llm_skips_second_stage_when_entities_complete() -> None:
     service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("跟梅家济说hello"))
     payload = decision.structured_command.get("payload", {})
-    assert decision.parse_source == "minimax"
+    assert decision.parse_source == "qwen"
     assert payload.get("text") == "hello"
     assert call_count["n"] == 1
 
 
 def test_llm_accepts_legacy_action_format() -> None:
     service = IntentService()
-    service.settings.minimax_api_key = "test-key"
+    service.settings.dashscope_api_key = "test-key"
     service.settings.intent_message_fastpath_enabled = False
 
     async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
@@ -98,7 +98,7 @@ def test_llm_accepts_legacy_action_format() -> None:
     service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("跟梅家济说hello"))
     payload = decision.structured_command.get("payload", {})
-    assert decision.parse_source == "minimax"
+    assert decision.parse_source == "qwen"
     assert decision.intent_type.value == "message_send"
     assert payload.get("chat_hint") == "梅家济"
     assert payload.get("text") == "hello"
@@ -106,7 +106,7 @@ def test_llm_accepts_legacy_action_format() -> None:
 
 def test_llm_json_repair_path() -> None:
     service = IntentService()
-    service.settings.minimax_api_key = "test-key"
+    service.settings.dashscope_api_key = "test-key"
 
     responses = [
         "<think>not json</think>",
@@ -126,22 +126,44 @@ def test_llm_json_repair_path() -> None:
 
     service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("帮我创建一个文档"))
-    assert decision.parse_source == "minimax"
+    assert decision.parse_source == "qwen"
     assert decision.intent_type.value == "doc_create"
 
 
-def test_message_fastpath_without_llm() -> None:
+def test_qwen_takes_priority_over_message_fastpath() -> None:
     service = IntentService()
-    service.settings.minimax_api_key = "test-key"
+    service.settings.dashscope_api_key = "test-key"
     service.settings.intent_message_fastpath_enabled = True
 
-    async def should_not_call(*_: object, **__: object) -> tuple[str, str | None]:
-        raise AssertionError("LLM should not be called for message fastpath")
+    async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = kwargs.get("payload", {})
+        return dict(payload) if isinstance(payload, dict) else {}
 
-    service._chat_completion = should_not_call  # type: ignore[method-assign]
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "capability_id": "im.message_send",
+                    "reason": "Qwen parsed send message",
+                    "action_plan": ["解析收件人", "发送消息"],
+                    "payload": {
+                        "chat_hint": "梅家济",
+                        "chat_id": "",
+                        "user_id": "",
+                        "text": "hello",
+                    },
+                    "missing_fields": [],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service.recipient_resolver.resolve = unresolved_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("跟梅家济说hello"))
     payload = decision.structured_command.get("payload", {})
-    assert decision.parse_source == "rules_fastpath"
+    assert decision.parse_source == "qwen"
     assert decision.intent_type.value == "message_send"
     assert payload.get("chat_hint") == "梅家济"
     assert payload.get("text") == "hello"
@@ -150,8 +172,63 @@ def test_message_fastpath_without_llm() -> None:
     assert decision.standard_action.payload.get("text") == "hello"
 
 
+def test_qwen_unknown_is_repaired_to_message_search() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "capability_id": "unknown",
+                    "reason": "parsed by qwen",
+                    "action_plan": ["调用 lark-cli 执行并返回结果"],
+                    "payload": {},
+                    "missing_fields": [],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+    decision = asyncio.run(service.parse("搜索项目群里关于发布的消息"))
+
+    assert decision.parse_source == "qwen"
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGES_SEARCH
+    assert decision.standard_action.payload.get("query") == "发布"
+
+
+def test_qwen_unknown_is_repaired_to_message_reply() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "capability_id": "unknown",
+                    "reason": "用户要回复上一条消息",
+                    "action_plan": ["确定要回复的消息", "发送回复内容"],
+                    "payload": {},
+                    "missing_fields": [],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+    decision = asyncio.run(service.parse("回复上一条消息：收到"))
+
+    assert decision.parse_source == "qwen"
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGES_REPLY
+    assert decision.standard_action.payload.get("text") == "收到"
+
+
 def test_message_fastpath_strips_send_message_verb() -> None:
     service = IntentService()
+    service.settings.dashscope_api_key = ""
     message = "给梅家济发消息：“hello”"
 
     async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
@@ -169,7 +246,7 @@ def test_message_fastpath_strips_send_message_verb() -> None:
 
 def test_local_resolution_skips_llm() -> None:
     service = IntentService()
-    service.settings.minimax_api_key = "test-key"
+    service.settings.dashscope_api_key = ""
     service.settings.intent_message_fastpath_enabled = False
 
     async def fake_resolve(*_: object, **__: object) -> dict[str, str]:
@@ -184,11 +261,7 @@ def test_local_resolution_skips_llm() -> None:
             "resolution_score": "1.0",
         }
 
-    async def should_not_call(*_: object, **__: object) -> tuple[str, str | None]:
-        raise AssertionError("LLM should not be called after local resolution")
-
     service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
-    service._chat_completion = should_not_call  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("给项目群发今晚发布"))
     payload = decision.structured_command.get("payload", {})
     assert decision.parse_source == "rules_resolve_first"
@@ -198,7 +271,7 @@ def test_local_resolution_skips_llm() -> None:
 
 def test_local_confirmation_skips_llm() -> None:
     service = IntentService()
-    service.settings.minimax_api_key = "test-key"
+    service.settings.dashscope_api_key = ""
     service.settings.intent_message_fastpath_enabled = False
 
     async def fake_resolve(*_: object, **__: object) -> dict[str, object]:
@@ -214,11 +287,7 @@ def test_local_confirmation_skips_llm() -> None:
             ],
         }
 
-    async def should_not_call(*_: object, **__: object) -> tuple[str, str | None]:
-        raise AssertionError("LLM should not be called when confirmation candidates already exist")
-
     service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
-    service._chat_completion = should_not_call  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("给王发你好"))
     payload = decision.structured_command.get("payload", {})
     assert decision.parse_source == "rules_resolve_first"
