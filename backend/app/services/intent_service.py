@@ -1,4 +1,4 @@
-"""Intent service backed by Qwen with deterministic fallback parsing."""
+"""Intent service backed by Qwen with schema-first normalization."""
 
 from __future__ import annotations
 
@@ -16,106 +16,113 @@ from app.domain.models import StandardAction
 from app.schemas.chat import ParsePreviewResponse
 from app.services.recipient_resolver import RecipientResolver
 
+MESSAGE_CAPABILITIES_WITH_TARGET = {
+    CapabilityId.IM_MESSAGE_SEND,
+    CapabilityId.IM_MESSAGES_SEARCH,
+    CapabilityId.IM_CHAT_MESSAGES_LIST,
+}
+LIST_FIELDS = {"member_hints", "attendees", "user_hints", "to_hints", "assignee_hints", "attachments", "cc"}
+BOT_IDENTITY_CAPABILITIES = {CapabilityId.IM_CHAT_CREATE}
+USER_IDENTITY_CAPABILITIES = {
+    CapabilityId.IM_MESSAGE_SEND,
+    CapabilityId.IM_MESSAGES_REPLY,
+    CapabilityId.IM_MESSAGES_SEARCH,
+    CapabilityId.IM_CHAT_MESSAGES_LIST,
+    CapabilityId.IM_CHAT_SEARCH,
+}
+
 
 class IntentDecision(ParsePreviewResponse):
-    """Intent decision plus action plan and executor hint."""
+    """Intent decision plus structured action output."""
 
     action_plan: list[str]
     selected_executor: ExecutorType
-    parse_source: str = "rules"
+    parse_source: str = "qwen"
+    missing_fields: list[str] = Field(default_factory=list)
     standard_action: StandardAction = Field(default_factory=StandardAction)
     structured_command: dict[str, Any] = Field(default_factory=dict)
+    raw_llm_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class IntentService:
-    """Resolve user message intent with LLM-first and rules fallback."""
+    """Resolve user requests by asking Qwen for a strict structured action."""
 
     def __init__(self) -> None:
         self.settings = get_settings()
         self.recipient_resolver = RecipientResolver()
 
     async def parse(self, message: str, context_hint: str = "") -> IntentDecision:
-        """Parse intent and generate normalized plan."""
-        lowered = message.lower()
-        if self.settings.dashscope_api_key:
-            llm_result = await self._parse_with_llm(message=message, context_hint=context_hint)
-            if llm_result is not None:
-                return llm_result
-            if self.settings.intent_require_llm:
-                return IntentDecision(
-                    intent_type=IntentType.UNKNOWN,
-                    reason="llm parse failed and rules fallback disabled",
-                    action_plan=["请用户重述需求或稍后重试"],
-                    selected_executor=ExecutorType.NONE,
-                    parse_source="qwen_required",
-                    standard_action=self._build_standard_action(
-                        intent=IntentType.UNKNOWN,
-                        payload={},
-                        capability_id=CapabilityId.UNKNOWN,
-                    ),
-                    structured_command={
-                        "intent_type": IntentType.UNKNOWN.value,
-                        "capability_id": CapabilityId.UNKNOWN.value,
-                        "payload": {},
-                    },
-                )
+        """Parse one natural-language request into a standard action."""
+        if not self.settings.dashscope_api_key:
+            return self._build_unknown_decision(
+                reason="qwen api key is not configured",
+                parse_source="llm_unavailable",
+            )
 
-        return await self._parse_with_rules(message)
+        decision = await self._parse_with_llm(message=message, context_hint=context_hint)
+        if decision is not None:
+            return decision
+
+        parse_source = "qwen_required" if self.settings.intent_require_llm else "qwen_failed"
+        return self._build_unknown_decision(
+            reason="qwen parse failed",
+            parse_source=parse_source,
+        )
 
     async def _parse_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
-        """Call Qwen with one-shot intent parse and robust fallback handling."""
-        if not self.settings.dashscope_api_key:
-            return None
-        lowered = message.lower()
-        system_prompt = self._message_intent_prompt() if self._looks_like_message_domain_request(message, lowered) else self._intent_prompt()
-        intent_raw, llm_error = await self._request_llm_json(
-            system_prompt=system_prompt,
+        """Call Qwen and normalize its structured output."""
+        raw_payload, llm_error = await self._request_llm_json(
+            system_prompt=self._intent_prompt(),
             user_payload={"message": message, "context_hint": context_hint},
-            max_tokens=256,
+            max_tokens=512,
             contract_hint=self._intent_contract_hint(),
             allow_repair=True,
             allow_retry=True,
             timeout_seconds=max(1, int(self.settings.qwen_intent_timeout_seconds)),
         )
-        normalized_intent = self._normalize_intent_payload(intent_raw)
-        lowered = message.lower()
-        if normalized_intent is None:
-            return None
+        if raw_payload is None:
+            return None if llm_error else self._build_unknown_decision(reason="invalid llm output", parse_source="qwen_invalid")
 
-        capability_id = self._to_capability_id(str(normalized_intent.get("capability_id", "")))
-        intent = self._to_intent_type(str(normalized_intent.get("intent_type", "unknown")))
-        if capability_id != CapabilityId.UNKNOWN:
-            intent = self._intent_for_capability(capability_id)
-        reason = str(normalized_intent.get("reason", "parsed by qwen")).strip()[:200]
-        plan = self._normalize_plan(normalized_intent.get("action_plan"))
-        entities_raw = normalized_intent.get("entities")
-        entities = entities_raw if isinstance(entities_raw, dict) else {}
-        if not entities and isinstance(normalized_intent.get("payload"), dict):
-            entities = dict(normalized_intent["payload"])
-        if capability_id == CapabilityId.UNKNOWN or intent == IntentType.UNKNOWN:
-            return self._build_llm_unknown_decision(reason=reason, plan=plan)
-        entities = self._finalize_llm_payload(capability_id=capability_id, entities=entities)
+        normalized = self._normalize_intent_payload(raw_payload)
+        if normalized is None:
+            return self._build_unknown_decision(
+                reason="invalid llm contract",
+                parse_source="qwen_invalid",
+                raw_llm_payload=raw_payload,
+            )
 
-        structured_command = self._build_structured_command(
-            intent=intent,
-            entities=entities,
-            capability_id=capability_id,
+        capability_id = self._resolve_capability_id(normalized)
+        if capability_id == CapabilityId.UNKNOWN:
+            return self._build_unknown_decision(
+                reason=str(normalized.get("reason", "unknown capability")).strip() or "unknown capability",
+                parse_source="qwen",
+                action_plan=self._normalize_plan(normalized.get("action_plan")),
+                raw_llm_payload=raw_payload,
+            )
+
+        payload_raw = normalized.get("payload")
+        payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
+        payload = self._finalize_llm_payload(capability_id=capability_id, payload=payload)
+        payload = await self._resolve_recipient_if_needed(capability_id=capability_id, payload=payload)
+
+        missing_fields = self._merge_missing_fields(
+            self._normalize_missing_fields(normalized.get("missing_fields")),
+            self._execution_missing_fields(capability_id=capability_id, payload=payload),
         )
-        payload = self._payload_from_structured_command(structured_command)
-        decision = IntentDecision(
+        structured_command = self._build_structured_command(capability_id=capability_id, payload=payload)
+        intent = self._intent_for_capability(capability_id)
+
+        return IntentDecision(
             intent_type=intent,
-            reason=reason or "parsed by qwen",
-            action_plan=plan,
-            selected_executor=self._executor_for(intent),
+            reason=str(normalized.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
+            action_plan=self._normalize_plan(normalized.get("action_plan")),
+            selected_executor=self._executor_for(capability_id),
             parse_source="qwen",
-            standard_action=self._build_standard_action(
-                intent=intent,
-                payload=payload,
-                capability_id=capability_id,
-            ),
+            missing_fields=missing_fields,
+            standard_action=self._build_standard_action(capability_id=capability_id, payload=payload),
             structured_command=structured_command,
+            raw_llm_payload=dict(raw_payload),
         )
-        return await self._resolve_message_recipient(decision=decision, message=message)
 
     async def _request_llm_json(
         self,
@@ -135,16 +142,17 @@ class IntentService:
         )
         if chat_error:
             return None, chat_error
+
         parsed = self._safe_json_loads(content)
         if parsed is not None:
             return parsed, None
 
         if not allow_repair:
             return None, "invalid_json_initial"
-        # One repair pass: ask model to rewrite prior output into strict JSON only.
+
         repair_prompt = (
-            "你是 JSON 修复器。只输出一个 JSON 对象，不要 markdown、不要解释。"
-            f"目标契约：{contract_hint}"
+            "Rewrite the previous model output into one strict JSON object only. "
+            f"Required contract: {contract_hint}"
         )
         repaired, repair_error = await self._chat_completion(
             system_prompt=repair_prompt,
@@ -154,13 +162,14 @@ class IntentService:
         )
         if repair_error:
             return None, f"repair_{repair_error}"
+
         repaired_json = self._safe_json_loads(repaired)
         if repaired_json is not None:
             return repaired_json, None
 
         if not allow_retry:
             return None, "invalid_json_repair"
-        # Retry once with original prompt to smooth out transient model drift.
+
         retry_content, retry_error = await self._chat_completion(
             system_prompt=system_prompt,
             user_payload=user_payload,
@@ -169,9 +178,10 @@ class IntentService:
         )
         if retry_error:
             return None, f"retry_{retry_error}"
-        parsed_retry = self._safe_json_loads(retry_content)
-        if parsed_retry is not None:
-            return parsed_retry, None
+
+        retry_json = self._safe_json_loads(retry_content)
+        if retry_json is not None:
+            return retry_json, None
         return None, "invalid_json_retry"
 
     async def _chat_completion(
@@ -213,327 +223,96 @@ class IntentService:
             return "", "unknown_error"
 
     def _normalize_intent_payload(self, data: dict[str, object] | None) -> dict[str, object] | None:
+        """Normalize raw model JSON into one internal contract."""
         if not isinstance(data, dict):
             return None
-        capability_id = self._to_capability_id(str(data.get("capability_id", "")))
-        if capability_id != CapabilityId.UNKNOWN:
-            payload_raw = data.get("payload", data.get("entities", {}))
-            payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
-            if capability_id == CapabilityId.IM_MESSAGE_SEND:
-                payload = self._normalize_message_entities(payload) or payload
-            payload = normalize_payload(capability_id, payload)
-            intent = self._intent_for_capability(capability_id)
-            return {
-                "intent_type": intent.value,
-                "capability_id": capability_id.value,
-                "reason": str(data.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
-                "action_plan": self._normalize_plan(data.get("action_plan")),
-                "entities": payload,
-            }
-        action = str(data.get("action", "")).strip().lower()
-        target = str(data.get("target", "")).strip()
-        msg = str(data.get("message", "")).strip()
-        if action in {"greeting", "message", "send_message"}:
-            payload = normalize_payload(
-                CapabilityId.IM_MESSAGE_SEND,
-                {"chat_hint": target, "chat_id": "", "user_id": "", "text": msg},
-            )
-            return {
-                "intent_type": "message_send",
-                "capability_id": CapabilityId.IM_MESSAGE_SEND.value,
-                "reason": "用户希望发送消息",
-                "action_plan": ["定位接收对象", "整理消息正文", "发送消息"],
-                "entities": payload,
-            }
 
-        intent = self._to_intent_type(str(data.get("intent_type", "unknown")))
-        entities_raw = data.get("entities")
-        entities = entities_raw if isinstance(entities_raw, dict) else {}
-        if intent == IntentType.MESSAGE_SEND:
-            entities = self._normalize_message_entities(entities) or {}
-        capability_id = self._capability_for_intent(intent)
-        entities = normalize_payload(capability_id, entities)
+        payload_raw = data.get("payload", data.get("entities", {}))
+        payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
+        capability_value = str(data.get("capability_id", "")).strip()
+        if not capability_value:
+            capability_value = str(data.get("intent_type", "")).strip()
 
+        capability_id = self._to_capability_id(capability_value)
+        if capability_id == CapabilityId.IM_MESSAGE_SEND:
+            payload = self._normalize_message_payload(payload)
+
+        normalized_payload = normalize_payload(capability_id, payload) if capability_id != CapabilityId.UNKNOWN else payload
         return {
-            "intent_type": intent.value,
             "capability_id": capability_id.value,
             "reason": str(data.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
             "action_plan": self._normalize_plan(data.get("action_plan")),
-            "entities": entities,
+            "payload": normalized_payload,
+            "missing_fields": self._normalize_missing_fields(data.get("missing_fields")),
         }
 
     @staticmethod
-    def _normalize_message_entities(data: dict[str, object] | None) -> dict[str, str] | None:
-        if not isinstance(data, dict):
-            return None
-        source = data
-        nested = data.get("entities")
-        if isinstance(nested, dict):
-            source = nested
-        chat_hint = str(source.get("chat_hint", source.get("target", source.get("recipient", "")))).strip()
-        chat_id = str(source.get("chat_id", "")).strip()
-        user_id = str(source.get("user_id", "")).strip()
-        message_text = str(source.get("message_text", source.get("text", source.get("message", "")))).strip()
-        if not (chat_hint or chat_id or user_id or message_text):
-            return None
+    def _normalize_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
         return {
-            "chat_hint": chat_hint,
-            "chat_id": chat_id,
-            "user_id": user_id,
-            "text": message_text,
+            "chat_hint": str(payload.get("chat_hint", payload.get("target", payload.get("recipient", "")))).strip(),
+            "chat_id": str(payload.get("chat_id", "")).strip(),
+            "user_id": str(payload.get("user_id", "")).strip(),
+            "text": str(payload.get("text", payload.get("message", payload.get("message_text", "")))).strip(),
+            "identity": str(payload.get("identity", "")).strip(),
         }
 
-    @staticmethod
-    def _needs_message_enrichment(entities: dict[str, Any]) -> bool:
-        chat_hint = str(entities.get("chat_hint", "")).strip()
-        chat_id = str(entities.get("chat_id", "")).strip()
-        user_id = str(entities.get("user_id", "")).strip()
-        message_text = str(entities.get("message_text", entities.get("text", ""))).strip()
-        has_target = bool(chat_hint or chat_id or user_id)
-        has_text = bool(message_text)
-        return not (has_target and has_text)
-
-    @staticmethod
-    def _looks_like_message_domain_request(message: str, lowered: str) -> bool:
-        keywords = (
-            "???",
-            "????",
-            "??",
-            "??",
-            "??",
-            "????",
-            "??",
-            "??",
-            "???",
-            "chat",
-            "message",
-        )
-        if any(keyword in message for keyword in keywords):
-            return True
-        return any(keyword in lowered for keyword in ("chat", "message", "reply", "search"))
-
-    @staticmethod
-    def _message_intent_prompt() -> str:
-        return (
-            "??????????????????"
-            "????? JSON ????? markdown??????"
-            "?????capability_id, reason, action_plan, payload, missing_fields?"
-            "capability_id ????im.message_send|im.messages_reply|im.messages_search|im.chat_messages_list|im.chat_search|im.chat_create|unknown?"
-            "?????????????????? recipient?"
-            "?????????????????????????? im.message_send???????????? capability?"
-            "????????????????????????? payload.chat_hint?"
-            "????? chat_id ? user_id?????????? chat_hint ????"
-            "??? payload?chat_hint, chat_id, user_id, text?"
-            "???? payload?query, chat_hint, sender_hint, start_time, end_time?"
-            "?????? payload?chat_hint, chat_id, user_id, start_time, end_time, limit?"
-            "???? payload?message_id, thread_id, message_hint, text?"
-            "??? payload?query??? payload?name, member_hints, description?"
-            "??1??????????18:00?????? -> capability_id=im.message_send, payload.chat_hint=???, payload.text=??18:00??????"
-            "??2????? CUA-Lark-4 ???CI ????????????? -> capability_id=im.message_send, payload.chat_hint=CUA-Lark-4, payload.text=CI ?????????????"
-            "??3?????? CUA-Lark-4??? 9 ??????????? -> capability_id=im.message_send, payload.chat_hint=CUA-Lark-4, payload.text=?? 9 ???????????"
-            "??4??? CUA-Lark-4 ???????? -> capability_id=im.messages_search, payload.chat_hint=CUA-Lark-4, payload.query=???"
-            "??5??? CUA-Lark-4 ??????? -> capability_id=im.chat_messages_list, payload.chat_hint=CUA-Lark-4?"
-            "??6????? CUA-Lark-4 -> capability_id=im.chat_search, payload.query=CUA-Lark-4?"
-            "??7????????????????????? -> capability_id=im.chat_create, payload.name=????, payload.description=??????"
-            "?????????? unknown??????????????????"
-        )
-
-    @staticmethod
-    def _intent_prompt() -> str:
-        return (
-            "?????????????????????????????"
-            "????? JSON ????? markdown?????????????"
-            "?????capability_id, reason, action_plan, payload, missing_fields?"
-            "capability_id ????im.message_send|im.messages_reply|im.messages_search|"
-            "im.chat_messages_list|im.chat_search|im.chat_create|calendar.create|calendar.reschedule|"
-            "calendar.agenda|calendar.freebusy|docs.create|docs.update|docs.search|sheets.update|"
-            "sheets.read|contact.search|task.create|mail.send|base.record_create|unknown?"
-            "payload ?????????????????????????? ID?"
-            "missing_fields ????????????????"
-            "?????????????????????? recipient?"
-            "????????????????? capability_id??????? im.message_send?"
-            "???????????????????????????????????????? recipient ??? payload.chat_hint?"
-            "???????? chat_id ? user_id??? payload.chat_hint ??????????? chat_id ? user_id ???"
-            "??? payload?chat_hint, chat_id, user_id, text?"
-            "???? payload?message_id, thread_id, message_hint, text?"
-            "???? payload?query, chat_hint, sender_hint, start_time, end_time?"
-            "?????? payload?chat_hint, chat_id, user_id, start_time, end_time, limit?"
-            "??? payload?query?"
-            "?? payload?name, member_hints, description?"
-            "???? payload?title, start_time, end_time, attendees, location?"
-            "???? payload?event_hint, source_time, target_time?"
-            "???? payload?title, content, folder_token?"
-            "???? payload?spreadsheet_token, sheet_id, cell, value?"
-            "??1?????????hello -> capability_id=im.message_send, payload.chat_hint=???, payload.text=hello?"
-            "??2????? CUA-Lark-4 ???CI ??? -> capability_id=im.message_send, payload.chat_hint=CUA-Lark-4, payload.text=CI ????"
-            "??3???????????????? -> capability_id=im.message_send, payload.chat_hint=???, payload.text=???????"
-            "??4??? CUA-Lark-4 ???????? -> capability_id=im.messages_search, payload.chat_hint=CUA-Lark-4, payload.query=???"
-            "??5??? CUA-Lark-4 ??????? -> capability_id=im.chat_messages_list, payload.chat_hint=CUA-Lark-4?"
-            "??????...?????? im.messages_search???????...???? im.messages_reply?"
-        )
-
-    @staticmethod
-    def _message_entity_prompt() -> str:
-        return (
-            "????????????????? JSON ????? markdown?????????????"
-            "?????chat_hint, chat_id, user_id, message_text?"
-            "??????????????????????????????? chat_hint?"
-            "chat_id/user_id ??????????????? ID?"
-            "??1?????? hello -> chat_hint=???, message_text=hello?"
-            "??2?? CUA-Lark-4 ?? CI ??? -> chat_hint=CUA-Lark-4, message_text=CI ????"
-            "??3???????????????? -> chat_hint=???, message_text=???????"
-        )
-
-    @staticmethod
-    def _intent_contract_hint() -> str:
-        return (
-            '{"capability_id":"im.message_send|im.messages_search|docs.create|calendar.create|unknown",'
-            '"reason":"...",'
-            '"action_plan":["..."],'
-            '"payload":{"query":"","title":"","chat_hint":"","text":""},'
-            '"missing_fields":[]}'
-        )
-
-    @staticmethod
-    def _message_entity_contract_hint() -> str:
-        return '{"chat_hint":"","chat_id":"","user_id":"","message_text":""}'
-
-    async def _parse_with_rules(self, message: str) -> IntentDecision:
-        """Deterministic fallback parser when LLM is unavailable."""
-        lowered = message.lower()
-        capability_id = self._classify_capability(message=message, lowered=lowered)
-        if capability_id == CapabilityId.IM_MESSAGE_SEND:
-            return await self._resolve_message_recipient(
-                decision=self._decision(
-                    intent=IntentType.MESSAGE_SEND,
-                    reason="message send keyword",
-                    message=message,
-                    capability_id=capability_id,
-                ),
-                message=message,
-            )
-        return self._decision(
-            intent=self._intent_for_capability(capability_id),
-            reason=f"{capability_id.value} keyword" if capability_id != CapabilityId.UNKNOWN else "no capability pattern matched",
-            message=message,
-            capability_id=capability_id,
-        )
-
-    def _classify_capability(self, message: str, lowered: str) -> CapabilityId:
-        if self._has_any(message, ("搜索", "查找", "查询")) and "消息" in message:
-            return CapabilityId.IM_MESSAGES_SEARCH
-        if self._has_any(message, ("回复", "回一条", "回消息")):
-            return CapabilityId.IM_MESSAGES_REPLY
-        if self._has_any(message, ("列出", "查看", "拉取")) and self._has_any(message, ("聊天记录", "群消息", "消息列表")):
-            return CapabilityId.IM_CHAT_MESSAGES_LIST
-        if self._has_any(message, ("搜索群", "查找群", "找群")) or "chat search" in lowered:
-            return CapabilityId.IM_CHAT_SEARCH
-        if self._has_any(message, ("建群", "创建群", "拉群")):
-            return CapabilityId.IM_CHAT_CREATE
-        if self._has_any(message, ("忙闲", "空闲", "freebusy")) or "freebusy" in lowered:
-            return CapabilityId.CALENDAR_FREEBUSY
-        if self._has_any(message, ("日程安排", "今天日程", "明天日程", "agenda")) or "agenda" in lowered:
-            return CapabilityId.CALENDAR_AGENDA
-        if self._has_any(message, ("改期", "改到", "延期", "提前")) and self._has_any(message, ("会议", "日程", "calendar")):
-            return CapabilityId.CALENDAR_RESCHEDULE
-        if self._has_any(message, ("创建日程", "新建日程", "安排会议", "创建会议")) or "calendar create" in lowered:
-            return CapabilityId.CALENDAR_CREATE
-        if self._has_any(message, ("搜索文档", "查找文档", "找文档")) or "doc search" in lowered:
-            return CapabilityId.DOC_SEARCH
-        if self._has_any(message, ("更新文档", "修改文档", "编辑文档")) or "doc update" in lowered:
-            return CapabilityId.DOC_UPDATE
-        if self._has_any(message, ("创建文档", "新建文档")) or "doc create" in lowered:
-            return CapabilityId.DOC_CREATE
-        if (
-            self._has_any(message, ("读取表格", "查看表格", "读表格"))
-            or ("表格" in message and self._has_any(message, ("读取", "查看", "读")))
-            or "sheet read" in lowered
-        ):
-            return CapabilityId.SHEET_READ
-        if (
-            self._has_any(message, ("更新表格", "写入表格", "修改表格", "单元格"))
-            or ("表格" in message and self._has_any(message, ("更新", "写入", "修改")))
-            or "sheet update" in lowered
-        ):
-            return CapabilityId.SHEET_UPDATE
-        if self._has_any(message, ("搜索联系人", "查找联系人", "找人", "查通讯录")):
-            return CapabilityId.CONTACT_SEARCH
-        if self._has_any(message, ("创建任务", "创建一个任务", "新建任务", "建任务", "建一个任务", "建待办", "创建待办")):
-            return CapabilityId.TASK_CREATE
-        if self._has_any(message, ("发邮件", "发送邮件", "写邮件")):
-            return CapabilityId.MAIL_SEND
-        if self._looks_like_message_send_command(message, lowered):
-            return CapabilityId.IM_MESSAGE_SEND
-        if self._has_any(message, ("新增记录", "添加记录", "写入多维表格", "base")):
-            return CapabilityId.BASE_RECORD_CREATE
-        return CapabilityId.UNKNOWN
-
-    @staticmethod
-    def _has_any(text: str, keywords: tuple[str, ...]) -> bool:
-        lowered = text.lower()
-        return any(keyword.lower() in lowered for keyword in keywords)
-
-    def _payload_for_capability(self, capability_id: CapabilityId, message: str) -> dict[str, object]:
-        if capability_id == CapabilityId.IM_MESSAGE_SEND:
-            return self._extract_message_entities(message)
-        if capability_id == CapabilityId.IM_MESSAGES_REPLY:
-            text = self._extract_after_colon(message)
-            return {"message_hint": text, "text": text, "identity": "bot"}
-        if capability_id == CapabilityId.IM_MESSAGES_SEARCH:
-            return {
-                "query": self._extract_query(message),
-                "chat_hint": self._extract_message_target_hint(message),
-                "identity": "user",
-            }
-        if capability_id == CapabilityId.IM_CHAT_SEARCH:
-            return {"query": self._extract_query(message), "identity": "user"}
-        if capability_id in {CapabilityId.DOC_SEARCH, CapabilityId.CONTACT_SEARCH}:
-            return {"query": self._extract_query(message)}
-        if capability_id == CapabilityId.IM_CHAT_MESSAGES_LIST:
-            return {"chat_hint": self._extract_message_target_hint(message), "limit": 20, "identity": "user"}
-        if capability_id == CapabilityId.IM_CHAT_CREATE:
-            return {"name": self._extract_title(message), "member_hints": self._extract_member_hints(message), "identity": "bot"}
-        if capability_id in {CapabilityId.CALENDAR_CREATE, CapabilityId.CALENDAR_RESCHEDULE}:
-            return {
-                "title": self._extract_title(message),
-                "event_hint": self._extract_event_hint(message),
-                "start_time": self._extract_time_hint(message, "start"),
-                "end_time": self._extract_time_hint(message, "end"),
-                "target_time": self._extract_time_hint(message, "target"),
-                "attendees": self._extract_member_hints(message),
-            }
-        if capability_id in {CapabilityId.CALENDAR_AGENDA, CapabilityId.CALENDAR_FREEBUSY}:
-            return {"time_range": self._extract_time_range(message), "user_hints": self._extract_member_hints(message)}
-        if capability_id in {CapabilityId.DOC_CREATE, CapabilityId.DOC_UPDATE}:
-            return {"title": self._extract_title(message), "content": self._extract_after_colon(message)}
-        if capability_id in {CapabilityId.SHEET_UPDATE, CapabilityId.SHEET_READ}:
-            return {
-                "sheet_hint": self._extract_sheet_hint(message),
-                "cell": self._extract_cell_hint(message),
-                "value": self._extract_after_value_marker(message),
-            }
-        if capability_id == CapabilityId.TASK_CREATE:
-            return {"title": self._extract_task_title(message)}
-        if capability_id == CapabilityId.MAIL_SEND:
-            return {"subject": self._extract_title(message), "body": self._extract_mail_body(message)}
-        if capability_id == CapabilityId.BASE_RECORD_CREATE:
-            return {"record": {"raw": message}}
-        return {}
-
-    def _finalize_llm_payload(self, capability_id: CapabilityId, entities: dict[str, Any]) -> dict[str, object]:
-        normalized = normalize_payload(capability_id, entities)
-        if capability_id == CapabilityId.IM_MESSAGE_SEND:
-            normalized["identity"] = str(normalized.get("identity", "")).strip().lower() or "bot"
-        elif capability_id in {CapabilityId.IM_MESSAGES_REPLY, CapabilityId.IM_CHAT_CREATE}:
-            normalized["identity"] = str(normalized.get("identity", "")).strip().lower() or "bot"
-        elif capability_id in {CapabilityId.IM_MESSAGES_SEARCH, CapabilityId.IM_CHAT_MESSAGES_LIST}:
-            normalized["identity"] = str(normalized.get("identity", "")).strip().lower() or "user"
-        missing_fields = missing_required_fields(capability_id, normalized)
-        if missing_fields:
-            normalized["missing_fields"] = missing_fields
+    def _finalize_llm_payload(self, capability_id: CapabilityId, payload: dict[str, Any]) -> dict[str, object]:
+        normalized = normalize_payload(capability_id, payload)
+        normalized = self._coerce_payload_types(normalized)
+        if capability_id in BOT_IDENTITY_CAPABILITIES:
+            normalized["identity"] = self._normalize_identity(normalized.get("identity"), default_identity="bot")
+        elif capability_id in USER_IDENTITY_CAPABILITIES:
+            normalized["identity"] = self._normalize_identity(normalized.get("identity"), default_identity="user")
         return normalized
 
-    def _build_llm_unknown_decision(self, reason: str, plan: list[str]) -> IntentDecision:
+    def _coerce_payload_types(self, payload: dict[str, object]) -> dict[str, object]:
+        coerced = dict(payload)
+        for field_name in LIST_FIELDS:
+            if field_name not in coerced:
+                continue
+            value = coerced.get(field_name)
+            if isinstance(value, list):
+                coerced[field_name] = [str(item).strip() for item in value if str(item).strip()]
+            else:
+                text = str(value or "").strip()
+                coerced[field_name] = [text] if text else []
+        if "limit" in coerced and not isinstance(coerced.get("limit"), int):
+            try:
+                coerced["limit"] = int(str(coerced.get("limit", "")).strip())
+            except ValueError:
+                coerced["limit"] = 20
+        return coerced
+
+    @staticmethod
+    def _normalize_identity(value: object, default_identity: str) -> str:
+        identity = str(value or "").strip().lower()
+        return identity if identity in {"bot", "user"} else default_identity
+
+    async def _resolve_recipient_if_needed(self, capability_id: CapabilityId, payload: dict[str, object]) -> dict[str, object]:
+        if capability_id not in MESSAGE_CAPABILITIES_WITH_TARGET:
+            return payload
+        return await self.recipient_resolver.resolve(payload=dict(payload))
+
+    @staticmethod
+    def _execution_missing_fields(capability_id: CapabilityId, payload: dict[str, object]) -> list[str]:
+        missing = missing_required_fields(capability_id, payload)
+        if capability_id in MESSAGE_CAPABILITIES_WITH_TARGET:
+            has_target = any(str(payload.get(field_name, "")).strip() for field_name in ("chat_hint", "chat_id", "user_id"))
+            if not has_target:
+                missing.append("chat_hint")
+        if capability_id == CapabilityId.IM_MESSAGES_REPLY:
+            has_reply_target = any(str(payload.get(field_name, "")).strip() for field_name in ("message_id", "thread_id", "message_hint"))
+            if not has_reply_target:
+                missing.append("message_hint")
+        return IntentService._merge_missing_fields(missing)
+
+    def _build_unknown_decision(
+        self,
+        reason: str,
+        parse_source: str,
+        action_plan: list[str] | None = None,
+        raw_llm_payload: dict[str, Any] | None = None,
+    ) -> IntentDecision:
         structured_command = {
             "intent_type": IntentType.UNKNOWN.value,
             "capability_id": CapabilityId.UNKNOWN.value,
@@ -541,301 +320,116 @@ class IntentService:
         }
         return IntentDecision(
             intent_type=IntentType.UNKNOWN,
-            reason=reason or "parsed by qwen",
-            action_plan=plan or ["请用户补充需求"],
+            reason=reason,
+            action_plan=action_plan or ["ask user for a clearer instruction"],
             selected_executor=ExecutorType.NONE,
-            parse_source="qwen",
-            standard_action=self._build_standard_action(
-                intent=IntentType.UNKNOWN,
-                payload={},
-                capability_id=CapabilityId.UNKNOWN,
-            ),
-            structured_command=structured_command,
-        )
-
-    @staticmethod
-    def _extract_after_colon(message: str) -> str:
-        parts = re.split(r"[:：]", message, maxsplit=1)
-        return parts[1].strip() if len(parts) == 2 else ""
-
-    @staticmethod
-    def _extract_query(message: str) -> str:
-        about = re.search(r"(?:关于|包含)(?P<query>[\w\u4e00-\u9fff]+?)(?:的|消息|文档|$)", message)
-        if about:
-            return about.group("query").strip()
-        match = re.search(r"(?:搜索|查找|查询|找)(?P<query>[\w\u4e00-\u9fff]+)", message)
-        return match.group("query").strip() if match else message.strip()[:80]
-
-    @staticmethod
-    def _extract_title(message: str) -> str:
-        match = re.search(r"(?:标题叫|标题为|叫|名为|主题是|主题为)(?P<title>[\w\u4e00-\u9fff -]{1,80})", message)
-        if match:
-            return match.group("title").strip()
-        colon_content = IntentService._extract_after_colon(message)
-        return colon_content[:80] if colon_content else message.strip()[:80]
-
-    @staticmethod
-    def _extract_task_title(message: str) -> str:
-        colon_content = IntentService._extract_after_colon(message)
-        if colon_content:
-            return colon_content[:80]
-        match = re.search(r"(?:任务|待办)[：:]?(?P<title>[^，。；;]{1,80})", message)
-        return match.group("title").strip() if match else IntentService._extract_title(message)
-
-    @staticmethod
-    def _extract_mail_body(message: str) -> str:
-        match = re.search(r"(?:内容是|正文是|内容为|正文为)(?P<body>[^，。；;]{1,200})", message)
-        if match:
-            return match.group("body").strip()
-        return IntentService._extract_after_colon(message)
-
-    @staticmethod
-    def _extract_chat_hint(message: str) -> str:
-        match = re.search(r"(?:在|搜索|查看|列出)(?P<hint>[\w\u4e00-\u9fff -]{1,40})(?:里|群|的)", message)
-        return match.group("hint").strip() if match else ""
-
-    @staticmethod
-    def _extract_event_hint(message: str) -> str:
-        match = re.search(r"(?P<hint>[\w\u4e00-\u9fff -]{1,40})(?:会议|日程)", message)
-        return match.group("hint").strip() if match else ""
-
-    @staticmethod
-    def _extract_doc_hint(message: str) -> str:
-        match = re.search(r"(?:文档|doc)(?P<hint>[\w\u4e00-\u9fff -]{1,40})", message, flags=re.IGNORECASE)
-        return match.group("hint").strip() if match else ""
-
-    @staticmethod
-    def _extract_sheet_hint(message: str) -> str:
-        match = re.search(r"(?:表格|sheet|多维表格|base)(?P<hint>[\w\u4e00-\u9fff -]{0,40})", message, flags=re.IGNORECASE)
-        return match.group("hint").strip() if match else ""
-
-    @staticmethod
-    def _extract_cell_hint(message: str) -> str:
-        match = re.search(r"[A-Z]{1,3}[0-9]{1,7}", message, flags=re.IGNORECASE)
-        return match.group(0).upper() if match else ""
-
-    @staticmethod
-    def _extract_after_value_marker(message: str) -> str:
-        match = re.search(r"(?:为|成|写入|更新为)(?P<value>[^，。；;]+)", message)
-        return match.group("value").strip() if match else IntentService._extract_after_colon(message)
-
-    @staticmethod
-    def _extract_time_hint(message: str, _: str) -> str:
-        match = re.search(r"(今天|明天|后天|周[一二三四五六日天]|星期[一二三四五六日天])?[^，。；;]*(?:[0-2]?[0-9][:：点][0-5]?[0-9]?|上午|下午|晚上)", message)
-        return match.group(0).strip() if match else ""
-
-    @staticmethod
-    def _extract_time_range(message: str) -> str:
-        match = re.search(r"(今天|明天|后天|本周|下周|上午|下午|晚上)", message)
-        return match.group(0).strip() if match else ""
-
-    @staticmethod
-    def _extract_member_hints(message: str) -> list[str]:
-        match = re.search(
-            r"(?:给|邀请|成员|收件人|负责人)(?P<names>[\w\u4e00-\u9fff 、,，]{1,80}?)(?:创建|发|发送|写|安排|$|[:：,，。])",
-            message,
-        )
-        if not match:
-            return []
-        return [item.strip() for item in re.split(r"[、,，\s]+", match.group("names")) if item.strip()]
-
-    def _decision(
-        self,
-        intent: IntentType,
-        reason: str,
-        message: str = "",
-        capability_id: CapabilityId | None = None,
-    ) -> IntentDecision:
-        resolved_capability = capability_id or self._capability_for_intent(intent)
-        plan_templates = {
-            IntentType.MESSAGE_SEND: ["定位接收对象", "整理消息正文", "调用 lark-cli 发送并回执"],
-            IntentType.CALENDAR_RESCHEDULE: ["定位目标日程", "检查忙闲冲突", "调用 lark-cli 改期并通知参会人"],
-            IntentType.DOC_CREATE: ["确认文档主题", "生成初稿结构", "调用 lark-cli 创建并写入内容"],
-            IntentType.SHEET_UPDATE: ["定位表格和单元格", "校验更新值", "调用 lark-cli 写入并校验结果"],
-            IntentType.UNKNOWN: ["请求用户补充信息", "保持任务为待确认状态"],
-        }
-        structured_command = self._build_structured_command(
-            intent=intent,
-            entities=self._payload_for_capability(resolved_capability, message),
-            capability_id=resolved_capability,
-        )
-        payload = self._payload_from_structured_command(structured_command)
-        return IntentDecision(
-            intent_type=intent,
-            reason=reason,
-            action_plan=plan_templates[intent],
-            selected_executor=self._executor_for(intent),
-            parse_source="rules",
-            standard_action=self._build_standard_action(
-                intent=intent,
-                payload=payload,
-                capability_id=resolved_capability,
-            ),
-            structured_command=structured_command,
-        )
-
-    def _build_message_fastpath_decision(
-        self,
-        message: str,
-        parse_source: str = "rules_fastpath",
-        reason: str = "消息发送快路径命中",
-    ) -> IntentDecision:
-        entities = self._extract_message_entities(message)
-        structured_command = self._build_structured_command(
-            intent=IntentType.MESSAGE_SEND,
-            entities={
-                "chat_hint": entities.get("chat_hint", ""),
-                "chat_id": entities.get("chat_id", ""),
-                "user_id": entities.get("user_id", ""),
-                "text": entities.get("text", ""),
-                "identity": "bot",
-            },
-            capability_id=CapabilityId.IM_MESSAGE_SEND,
-        )
-        payload = self._payload_from_structured_command(structured_command)
-        return IntentDecision(
-            intent_type=IntentType.MESSAGE_SEND,
-            reason=reason,
-            action_plan=["定位接收对象", "整理消息正文", "发送消息"],
-            selected_executor=ExecutorType.CLI,
             parse_source=parse_source,
-            standard_action=self._build_standard_action(
-                intent=IntentType.MESSAGE_SEND,
-                payload=payload,
-                capability_id=CapabilityId.IM_MESSAGE_SEND,
-            ),
+            missing_fields=[],
+            standard_action=self._build_standard_action(capability_id=CapabilityId.UNKNOWN, payload={}),
             structured_command=structured_command,
+            raw_llm_payload=raw_llm_payload or {},
         )
 
     @staticmethod
-    def _to_intent_type(value: str) -> IntentType:
-        normalized = value.strip().lower().replace("-", "_")
-        alias = {
-            "send_message": IntentType.MESSAGE_SEND,
-            "message_send": IntentType.MESSAGE_SEND,
-            "message_reply": IntentType.MESSAGE_SEND,
-            "messages_reply": IntentType.MESSAGE_SEND,
-            "message_search": IntentType.MESSAGE_SEND,
-            "messages_search": IntentType.MESSAGE_SEND,
-            "chat_search": IntentType.MESSAGE_SEND,
-            "chat_create": IntentType.MESSAGE_SEND,
-            "reschedule_calendar": IntentType.CALENDAR_RESCHEDULE,
-            "calendar_reschedule": IntentType.CALENDAR_RESCHEDULE,
-            "calendar_create": IntentType.CALENDAR_RESCHEDULE,
-            "calendar_agenda": IntentType.CALENDAR_RESCHEDULE,
-            "calendar_freebusy": IntentType.CALENDAR_RESCHEDULE,
-            "create_doc": IntentType.DOC_CREATE,
-            "doc_create": IntentType.DOC_CREATE,
-            "docs_create": IntentType.DOC_CREATE,
-            "docs_update": IntentType.DOC_CREATE,
-            "docs_search": IntentType.DOC_CREATE,
-            "update_sheet": IntentType.SHEET_UPDATE,
-            "sheet_update": IntentType.SHEET_UPDATE,
-            "sheets_update": IntentType.SHEET_UPDATE,
-            "sheets_read": IntentType.SHEET_UPDATE,
-            "unknown": IntentType.UNKNOWN,
-        }
-        return alias.get(normalized, IntentType.UNKNOWN)
+    def _intent_prompt() -> str:
+        return (
+            "You are the intent parser for a Feishu automation agent. "
+            "Return exactly one JSON object and nothing else. "
+            "Fields: capability_id, reason, action_plan, payload, missing_fields. "
+            "Never invent chat_id, user_id, message_id, thread_id, spreadsheet_token, doc token, or any opaque identifier. "
+            "Leave unknown strings empty and unknown arrays empty. "
+            "capability_id must be one of: "
+            "im.message_send, im.messages_reply, im.messages_search, im.chat_messages_list, im.chat_search, im.chat_create, "
+            "calendar.create, calendar.reschedule, calendar.agenda, calendar.freebusy, "
+            "docs.create, docs.update, docs.search, sheets.update, sheets.read, "
+            "contact.search, task.create, mail.send, base.record_create, unknown. "
+            "For im.message_send payload use: chat_hint, chat_id, user_id, text, identity. "
+            "For im.messages_reply payload use: message_id, thread_id, message_hint, text, reply_in_thread, identity. "
+            "For im.messages_search payload use: query, chat_hint, chat_id, sender_hint, start_time, end_time, limit, identity. "
+            "For im.chat_messages_list payload use: chat_hint, chat_id, user_id, start_time, end_time, limit, identity. "
+            "For im.chat_search payload use: query, member_hints, limit, identity. "
+            "For im.chat_create payload use: name, member_hints, description, identity. "
+            "For calendar.create payload use: title, start_time, end_time, attendees, location. "
+            "For calendar.reschedule payload use: event_hint, source_time, target_time. "
+            "For calendar.agenda payload use: time_range, user_hints. "
+            "For calendar.freebusy payload use: time_range, user_hints. "
+            "For docs.create payload use: title, content, folder_token. "
+            "For docs.update payload use: title, content, doc_token. "
+            "For docs.search payload use: query. "
+            "For sheets.update payload use: spreadsheet_token, sheet_id, cell, value. "
+            "For sheets.read payload use: spreadsheet_token, sheet_id, cell. "
+            "For contact.search payload use: query. "
+            "For task.create payload use: title, assignee_hints, due_time, description. "
+            "For mail.send payload use: subject, body, to_hints, cc, attachments. "
+            "For base.record_create payload use: base_hint, table_hint, record. "
+            "If a required execution argument is missing, list it in missing_fields instead of guessing. "
+            "Extraction rules: "
+            "When the user says 'give X a message', 'send a message to X', 'tell X ...', or the Chinese forms '给X发消息', '发送消息给X', '跟X说', put X into payload.chat_hint. "
+            "When the user asks to search or list messages in one chat, keep that chat name in payload.chat_hint. "
+            "Do not drop recipient names from payload.chat_hint just because the id is unknown. "
+            "For task.create, keep the core task wording in payload.title; if there is a deadline, copy it into due_time but do not over-shorten title. "
+            "Example: for '创建任务：今晚提交周报，截止明天中午12点', set payload.title to '今晚提交周报' and payload.due_time to '明天中午12点'."
+        )
+
+    @staticmethod
+    def _intent_contract_hint() -> str:
+        return (
+            '{"capability_id":"im.message_send","reason":"...","action_plan":["..."],'
+            '"payload":{"chat_hint":"","chat_id":"","user_id":"","text":"","identity":"user"},'
+            '"missing_fields":["chat_hint"]}'
+        )
+
+    @staticmethod
+    def _resolve_capability_id(normalized: dict[str, object]) -> CapabilityId:
+        return IntentService._to_capability_id(str(normalized.get("capability_id", "")))
 
     @staticmethod
     def _to_capability_id(value: str) -> CapabilityId:
         raw = value.strip().lower()
-        normalized = raw.replace("-", ".")
-        alias = {
-            item.value: item for item in CapabilityId
-        }
-        alias.update({
-            "message.send": CapabilityId.IM_MESSAGE_SEND,
-            "send.message": CapabilityId.IM_MESSAGE_SEND,
-            "im.message_send": CapabilityId.IM_MESSAGE_SEND,
-            "message.reply": CapabilityId.IM_MESSAGES_REPLY,
-            "im.messages_reply": CapabilityId.IM_MESSAGES_REPLY,
-            "message.search": CapabilityId.IM_MESSAGES_SEARCH,
-            "im.messages_search": CapabilityId.IM_MESSAGES_SEARCH,
-            "chat.messages.list": CapabilityId.IM_CHAT_MESSAGES_LIST,
-            "im.chat_messages_list": CapabilityId.IM_CHAT_MESSAGES_LIST,
-            "chat.search": CapabilityId.IM_CHAT_SEARCH,
-            "im.chat_search": CapabilityId.IM_CHAT_SEARCH,
-            "chat.create": CapabilityId.IM_CHAT_CREATE,
-            "im.chat_create": CapabilityId.IM_CHAT_CREATE,
-            "calendar.reschedule": CapabilityId.CALENDAR_RESCHEDULE,
-            "calendar.event.reschedule": CapabilityId.CALENDAR_RESCHEDULE,
-            "calendar.event.create": CapabilityId.CALENDAR_CREATE,
-            "doc.create": CapabilityId.DOC_CREATE,
-            "doc.update": CapabilityId.DOC_UPDATE,
-            "doc.search": CapabilityId.DOC_SEARCH,
-            "sheet.update": CapabilityId.SHEET_UPDATE,
-            "sheet.read": CapabilityId.SHEET_READ,
-            "mail.send": CapabilityId.MAIL_SEND,
-            "task.create": CapabilityId.TASK_CREATE,
-        })
-        return alias.get(normalized, CapabilityId.UNKNOWN)
-
-    @staticmethod
-    def _executor_for(intent: IntentType) -> ExecutorType:
-        if intent == IntentType.UNKNOWN:
-            return ExecutorType.NONE
-        return ExecutorType.CLI
-
-    @staticmethod
-    def _normalize_plan(raw_plan: object) -> list[str]:
-        if isinstance(raw_plan, list):
-            normalized = [str(item).strip()[:60] for item in raw_plan if str(item).strip()]
-            return normalized[:4] or ["调用 lark-cli 执行并返回结果"]
-        if isinstance(raw_plan, str) and raw_plan.strip():
-            return [raw_plan.strip()[:60]]
-        return ["调用 lark-cli 执行并返回结果"]
-
-    @staticmethod
-    def _safe_json_loads(content: str) -> dict[str, object] | None:
-        text = content.strip()
-        if text.startswith("```"):
-            text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        else:
-            fenced = re.search(r"```json\s*([\s\S]*?)\s*```", text, flags=re.IGNORECASE)
-            if fenced:
-                text = fenced.group(1).strip()
-            else:
-                obj = re.search(r"\{[\s\S]*\}", text)
-                if obj:
-                    text = obj.group(0).strip()
-        try:
-            data = json.loads(text)
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            return None
-        return None
-
-    def _build_structured_command(
-        self,
-        intent: IntentType,
-        entities: dict[str, Any],
-        capability_id: CapabilityId | None = None,
-    ) -> dict[str, Any]:
-        resolved_capability = capability_id or self._capability_for_intent(intent)
-        normalized_payload = normalize_payload(resolved_capability, dict(entities))
-        return {
-            "intent_type": intent.value,
-            "capability_id": resolved_capability.value,
-            "payload": normalized_payload,
-        }
-
-    @staticmethod
-    def _payload_from_structured_command(structured_command: dict[str, Any]) -> dict[str, object]:
-        payload = structured_command.get("payload")
-        return dict(payload) if isinstance(payload, dict) else {}
-
-    @staticmethod
-    def _capability_for_intent(intent: IntentType) -> CapabilityId:
-        mapping = {
-            IntentType.MESSAGE_SEND: CapabilityId.IM_MESSAGE_SEND,
-            IntentType.CALENDAR_RESCHEDULE: CapabilityId.CALENDAR_RESCHEDULE,
-            IntentType.DOC_CREATE: CapabilityId.DOC_CREATE,
-            IntentType.SHEET_UPDATE: CapabilityId.SHEET_UPDATE,
-            IntentType.UNKNOWN: CapabilityId.UNKNOWN,
-        }
-        return mapping.get(intent, CapabilityId.UNKNOWN)
+        alias = {item.value: item for item in CapabilityId}
+        alias.update(
+            {
+                "message.send": CapabilityId.IM_MESSAGE_SEND,
+                "send.message": CapabilityId.IM_MESSAGE_SEND,
+                "message.reply": CapabilityId.IM_MESSAGES_REPLY,
+                "messages.reply": CapabilityId.IM_MESSAGES_REPLY,
+                "message.search": CapabilityId.IM_MESSAGES_SEARCH,
+                "messages.search": CapabilityId.IM_MESSAGES_SEARCH,
+                "chat.messages.list": CapabilityId.IM_CHAT_MESSAGES_LIST,
+                "chat.search": CapabilityId.IM_CHAT_SEARCH,
+                "chat.create": CapabilityId.IM_CHAT_CREATE,
+                "calendar.create": CapabilityId.CALENDAR_CREATE,
+                "calendar.reschedule": CapabilityId.CALENDAR_RESCHEDULE,
+                "calendar.agenda": CapabilityId.CALENDAR_AGENDA,
+                "calendar.freebusy": CapabilityId.CALENDAR_FREEBUSY,
+                "doc.create": CapabilityId.DOC_CREATE,
+                "docs.create": CapabilityId.DOC_CREATE,
+                "doc.update": CapabilityId.DOC_UPDATE,
+                "docs.update": CapabilityId.DOC_UPDATE,
+                "doc.search": CapabilityId.DOC_SEARCH,
+                "docs.search": CapabilityId.DOC_SEARCH,
+                "sheet.update": CapabilityId.SHEET_UPDATE,
+                "sheets.update": CapabilityId.SHEET_UPDATE,
+                "sheet.read": CapabilityId.SHEET_READ,
+                "sheets.read": CapabilityId.SHEET_READ,
+                "contact.search": CapabilityId.CONTACT_SEARCH,
+                "task.create": CapabilityId.TASK_CREATE,
+                "mail.send": CapabilityId.MAIL_SEND,
+                "base.record.create": CapabilityId.BASE_RECORD_CREATE,
+                "base.record_create": CapabilityId.BASE_RECORD_CREATE,
+            }
+        )
+        candidates = (
+            raw,
+            raw.replace("-", "."),
+            raw.replace("_", "."),
+            raw.replace("-", "_"),
+        )
+        for candidate in candidates:
+            resolved = alias.get(candidate)
+            if resolved is not None:
+                return resolved
+        return CapabilityId.UNKNOWN
 
     @staticmethod
     def _intent_for_capability(capability_id: CapabilityId) -> IntentType:
@@ -865,118 +459,67 @@ class IntentService:
             return IntentType.SHEET_UPDATE
         return IntentType.UNKNOWN
 
-    def _build_standard_action(
-        self,
-        intent: IntentType,
-        payload: dict[str, object],
-        capability_id: CapabilityId | None = None,
-    ) -> StandardAction:
+    @staticmethod
+    def _executor_for(capability_id: CapabilityId) -> ExecutorType:
+        return ExecutorType.NONE if capability_id == CapabilityId.UNKNOWN else ExecutorType.CLI
+
+    @staticmethod
+    def _normalize_plan(raw_plan: object) -> list[str]:
+        if isinstance(raw_plan, list):
+            normalized = [str(item).strip()[:60] for item in raw_plan if str(item).strip()]
+            if normalized:
+                return normalized[:4]
+        if isinstance(raw_plan, str) and raw_plan.strip():
+            return [raw_plan.strip()[:60]]
+        return ["call lark-cli with the structured payload"]
+
+    @staticmethod
+    def _normalize_missing_fields(raw_missing_fields: object) -> list[str]:
+        if not isinstance(raw_missing_fields, list):
+            return []
+        return IntentService._merge_missing_fields([str(item).strip() for item in raw_missing_fields if str(item).strip()])
+
+    @staticmethod
+    def _merge_missing_fields(*groups: list[str]) -> list[str]:
+        merged: list[str] = []
+        for group in groups:
+            for field_name in group:
+                normalized = str(field_name).strip()
+                if normalized and normalized not in merged:
+                    merged.append(normalized)
+        return merged
+
+    @staticmethod
+    def _safe_json_loads(content: str) -> dict[str, object] | None:
+        text = content.strip()
+        if text.startswith("```"):
+            text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+        else:
+            fenced = re.search(r"```json\s*([\s\S]*?)\s*```", text, flags=re.IGNORECASE)
+            if fenced:
+                text = fenced.group(1).strip()
+            else:
+                obj = re.search(r"\{[\s\S]*\}", text)
+                if obj:
+                    text = obj.group(0).strip()
+        try:
+            data = json.loads(text)
+            return data if isinstance(data, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+    def _build_structured_command(self, capability_id: CapabilityId, payload: dict[str, object]) -> dict[str, Any]:
+        return {
+            "intent_type": self._intent_for_capability(capability_id).value,
+            "capability_id": capability_id.value,
+            "payload": normalize_payload(capability_id, dict(payload)),
+        }
+
+    def _build_standard_action(self, capability_id: CapabilityId, payload: dict[str, object]) -> StandardAction:
+        intent = self._intent_for_capability(capability_id)
         return StandardAction(
-            capability_id=capability_id or self._capability_for_intent(intent),
+            capability_id=capability_id,
             payload=payload,
-            executor_hint=self._executor_for(intent),
+            executor_hint=self._executor_for(capability_id),
             intent_type=intent,
         )
-
-    @staticmethod
-    def _extract_message_target_hint(message: str) -> str:
-        patterns = [
-            r"(?:在|给|向|往)(?P<hint>[\w\u4e00-\u9fff -]{1,40}?)(?:里|群里|群中|里面)(?:发|发送|说|查|搜索|列出)",
-            r"(?:搜索|查找|查询|查看|列出)(?P<hint>[\w\u4e00-\u9fff -]{1,40}?)(?:里|群里|群中|里面)?(?:关于|最近|的消息|聊天记录)",
-            r"(?:发送消息给|发消息给|给)(?P<hint>[\w\u4e00-\u9fff -]{1,40}?)(?:：|:|发|发送|说)",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, message)
-            if match:
-                return match.group("hint").strip()
-        return ""
-
-    @staticmethod
-    def _extract_message_entities(message: str) -> dict[str, str]:
-        recipient = ""
-        content = ""
-        patterns = [
-            r"(?:给|跟|对)(?P<target>[^：:，。,]{1,60}?)(?:发送消息|发消息|发送|发|说|讲|回复)[:：]?(?P<body>.+)",
-            r"(?:发|发送)消息给(?P<target>[^：:，。,]{1,60})[：:]?(?P<body>.+)",
-            r"在(?P<target>[^：:，。,]{1,60}?)(?:里)?(?:发送消息|发消息|发送|发|说|讲)[:：]?(?P<body>.+)",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, message)
-            if match:
-                recipient = match.group("target").strip().removesuffix("里")
-                content = match.group("body").strip("：:，。 ").strip()
-                break
-        if not content:
-            quote = re.search(r"[“\"](?P<body>[^”\"]+)[”\"]", message)
-            if quote:
-                content = quote.group("body").strip()
-        if not content:
-            simple = re.search(r"(发送|发)(?P<body>.+)", message)
-            if simple:
-                content = simple.group("body").strip("：:，。 ").strip()
-        if not content:
-            content = message.strip()[:120]
-        return {"chat_hint": recipient, "chat_id": "", "user_id": "", "text": content}
-
-    @staticmethod
-    def _looks_like_message_send_command(message: str, lowered: str) -> bool:
-        if any(keyword in message for keyword in ("邮件", "任务", "待办")):
-            return False
-        if re.search(r"(给|跟|在).{1,40}(发|发送|说)", message):
-            return True
-        if re.search(r"(发|发送)消息给", message):
-            return True
-        return "send" in lowered
-
-    def _looks_like_message_command(self, message: str, lowered: str) -> bool:
-        """Backward-compatible alias for older tests/scripts."""
-        return self._looks_like_message_send_command(message, lowered)
-
-    async def _resolve_message_recipient(self, decision: IntentDecision, message: str) -> IntentDecision:
-        capability_id = decision.standard_action.capability_id
-        if capability_id not in {
-            CapabilityId.IM_MESSAGE_SEND,
-            CapabilityId.IM_MESSAGES_SEARCH,
-            CapabilityId.IM_CHAT_MESSAGES_LIST,
-        }:
-            return decision
-        structured = decision.structured_command if isinstance(decision.structured_command, dict) else {}
-        payload = structured.get("payload") if isinstance(structured.get("payload"), dict) else {}
-        if not payload:
-            return decision
-        resolved_payload = await self.recipient_resolver.resolve(message=message, payload=dict(payload))
-        if resolved_payload == payload:
-            return decision
-        if not str(resolved_payload.get("identity", "")).strip():
-            resolved_payload["identity"] = str(payload.get("identity", "")).strip() or "bot"
-        updated_structured = dict(structured)
-        updated_structured["payload"] = resolved_payload
-        return decision.model_copy(
-            update={
-                "standard_action": self._build_standard_action(
-                    intent=decision.intent_type,
-                    payload=resolved_payload,
-                    capability_id=capability_id,
-                ),
-                "structured_command": updated_structured,
-            }
-        )
-
-    async def _try_message_without_llm(self, message: str, lowered: str) -> IntentDecision | None:
-        if not self._looks_like_message_command(message, lowered):
-            return None
-        decision = self._build_message_fastpath_decision(
-            message=message,
-            parse_source="rules_resolve_first",
-            reason="消息发送本地解析命中",
-        )
-        resolved = await self._resolve_message_recipient(decision=decision, message=message)
-        payload = resolved.structured_command.get("payload", {})
-        if not isinstance(payload, dict):
-            return None
-        if payload.get("chat_id") or payload.get("user_id"):
-            return resolved
-        resolution_status = str(payload.get("resolution_status", "")).strip().lower()
-        if resolution_status == "needs_confirmation" and payload.get("resolution_candidates"):
-            return resolved
-        return None

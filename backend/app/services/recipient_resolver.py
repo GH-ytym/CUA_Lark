@@ -1,16 +1,13 @@
-"""Resolve message recipients from local SQLite directory with optional Qwen ranking."""
+"""Resolve message recipients from local SQLite directory."""
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-import inspect
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-import httpx
 from difflib import SequenceMatcher
 
 try:
@@ -19,8 +16,6 @@ except ImportError:  # pragma: no cover - optional dependency
     fuzz = None
 
 from app.core.config import get_settings
-
-Picker = Callable[[str, list["RecipientCandidate"]], Awaitable[int | None] | int | None]
 
 
 @dataclass(frozen=True)
@@ -34,7 +29,7 @@ class RecipientCandidate:
 
 
 class RecipientResolver:
-    """Resolve message recipient by name using local index plus optional Qwen fuzzy ranking."""
+    """Resolve recipient ids from the model-provided chat hint."""
 
     GENERIC_HINTS = {
         "他们",
@@ -62,15 +57,14 @@ class RecipientResolver:
         "蘭": "兰",
     }
 
-    def __init__(self, sqlite_path: str | None = None, picker: Picker | None = None) -> None:
+    def __init__(self, sqlite_path: str | None = None) -> None:
         self.settings = get_settings()
         self.sqlite_path = self._resolve_sqlite_path(sqlite_path or self.settings.recipient_sqlite_path)
-        self._picker = picker
         self._top_k = max(1, int(self.settings.recipient_resolver_top_k))
         self._recent_hits: dict[str, dict[str, Any]] = {}
 
-    async def resolve(self, message: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """Fill chat_id/user_id from local directory when only name hint is available."""
+    async def resolve(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Fill chat_id/user_id from local directory when only hint is available."""
         chat_id = str(payload.get("chat_id", "")).strip()
         user_id = str(payload.get("user_id", "")).strip()
         if chat_id or user_id:
@@ -78,7 +72,7 @@ class RecipientResolver:
             resolved["resolution_status"] = "resolved"
             resolved["resolution_method"] = "provided_id"
             return resolved
-        hint = str(payload.get("chat_hint", "")).strip() or self._extract_hint(message)
+        hint = str(payload.get("chat_hint", "")).strip()
         if not hint:
             return self._mark_needs_confirmation(
                 payload=payload,
@@ -195,70 +189,6 @@ class RecipientResolver:
         ranked = sorted(merged.values(), key=lambda item: item.score, reverse=True)
         return ranked[: self._top_k]
 
-    async def _pick_index(self, hint: str, candidates: list[RecipientCandidate]) -> int | None:
-        if self._picker is not None:
-            picked = self._picker(hint, candidates)
-            if inspect.isawaitable(picked):
-                return await picked
-            return picked if isinstance(picked, int) else None
-        if not self.settings.recipient_resolver_use_llm:
-            return None
-        return await self._pick_index_with_qwen(hint, candidates)
-
-    async def _pick_index_with_qwen(self, hint: str, candidates: list[RecipientCandidate]) -> int | None:
-        if not self.settings.dashscope_api_key:
-            return None
-        prompt = (
-            "你是飞书接收对象匹配器。"
-            "用户提供一个接收对象名称，请在候选列表中选最匹配的一项。"
-            "只输出 JSON，字段: match_index(int, -1 表示无法确定), confidence(0-1), reason(字符串)。"
-        )
-        candidates_json = [
-            {
-                "index": idx,
-                "entity_type": item.entity_type,
-                "name": item.name,
-                "entity_id": item.entity_id,
-                "rule_score": round(item.score, 4),
-            }
-            for idx, item in enumerate(candidates)
-        ]
-        payload = {
-            "model": self.settings.qwen_model,
-            "messages": [
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {"target_name": hint, "candidates": candidates_json},
-                        ensure_ascii=False,
-                    ),
-                },
-            ],
-            "max_tokens": 200,
-            "temperature": 0.1,
-        }
-        headers = {
-            "Authorization": f"Bearer {self.settings.dashscope_api_key}",
-            "Content-Type": "application/json",
-        }
-        try:
-            timeout_seconds = max(1, int(self.settings.qwen_recipient_timeout_seconds))
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                response = await client.post(self.settings.qwen_chat_url, headers=headers, json=payload)
-                response.raise_for_status()
-                content = response.json()["choices"][0]["message"]["content"]
-        except Exception:
-            return None
-        parsed = self._safe_json_loads(content)
-        if parsed is None:
-            return None
-        confidence = float(parsed.get("confidence", 0))
-        match_index = int(parsed.get("match_index", -1))
-        if confidence < 0.55 or match_index < 0 or match_index >= len(candidates):
-            return None
-        return match_index
-
     @staticmethod
     def _pick_by_rules(hint: str, candidates: list[RecipientCandidate]) -> int | None:
         if not candidates:
@@ -284,19 +214,6 @@ class RecipientResolver:
             if (first.score - second.score) >= gap:
                 return 0
         return None
-
-    @staticmethod
-    def _extract_hint(message: str) -> str:
-        # Covers forms like "给张三发", "在研发群里发", "发送消息给项目群：..."
-        patterns = [
-            r"(?:给|在)(?P<hint>[^，。,.\s]{1,30})(?:发|发送|说)",
-            r"发送消息给(?P<hint>[^：:，。,.\s]{1,30})",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, message)
-            if match:
-                return match.group("hint").strip()
-        return ""
 
     @staticmethod
     def _score(hint: str, searchable_text: str) -> float:
@@ -348,34 +265,6 @@ class RecipientResolver:
             variants.add(f"阿{normalized}")
         return [item for item in variants if item]
 
-    def _is_ambiguous(self, hint: str, candidates: list[RecipientCandidate]) -> bool:
-        if self._is_generic_hint(hint):
-            return True
-        if len(candidates) < 2:
-            return candidates[0].score < float(self.settings.recipient_resolver_high_confidence)
-        first, second = candidates[0], candidates[1]
-        gap = float(first.score) - float(second.score)
-        return gap < float(self.settings.recipient_resolver_ambiguity_gap)
-
-    def _should_try_llm_pick(
-        self,
-        hint: str,
-        candidates: list[RecipientCandidate],
-        selected_index: int | None,
-        ambiguous: bool,
-    ) -> bool:
-        if not self.settings.recipient_resolver_use_llm:
-            return False
-        if not self.settings.dashscope_api_key:
-            return False
-        if not candidates:
-            return False
-        if self._is_generic_hint(hint):
-            return True
-        if selected_index is None:
-            return True
-        return ambiguous
-
     @staticmethod
     def _mark_needs_confirmation(
         payload: dict[str, Any],
@@ -403,24 +292,3 @@ class RecipientResolver:
             project_root = Path(__file__).resolve().parents[3]
             path = project_root / path
         return str(path)
-
-    @staticmethod
-    def _safe_json_loads(content: str) -> dict[str, object] | None:
-        text = content.strip()
-        if text.startswith("```"):
-            text = text.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-        else:
-            fenced = re.search(r"```json\s*([\s\S]*?)\s*```", text, flags=re.IGNORECASE)
-            if fenced:
-                text = fenced.group(1).strip()
-            else:
-                obj = re.search(r"\{[\s\S]*\}", text)
-                if obj:
-                    text = obj.group(0).strip()
-        try:
-            data = json.loads(text)
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            return None
-        return None

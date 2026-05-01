@@ -31,12 +31,9 @@ class Settings(BaseSettings):
     qwen_model: str = "qwen3.6-flash"
     qwen_timeout_seconds: int = 20
     qwen_intent_timeout_seconds: int = 20
-    qwen_recipient_timeout_seconds: int = 6
     intent_require_llm: bool = False
-    intent_message_fastpath_enabled: bool = True
     recipient_sqlite_path: str = "data/lark_recipients.db"
     recipient_resolver_top_k: int = 12
-    recipient_resolver_use_llm: bool = False
     recipient_resolver_high_confidence: float = 0.90
     recipient_resolver_min_confidence: float = 0.70
     recipient_resolver_ambiguity_gap: float = 0.15

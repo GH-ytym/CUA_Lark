@@ -22,7 +22,7 @@ def test_message_send_clear_natural_language_reaches_cli(monkeypatch) -> None:
             "chat_id": "oc_proj",
             "user_id": "",
             "text": "今晚九点发布，注意回归验证。",
-            "identity": "bot",
+            "identity": "user",
             "resolution_status": "resolved",
         }
 

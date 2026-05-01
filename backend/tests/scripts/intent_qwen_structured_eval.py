@@ -176,7 +176,7 @@ async def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cases = load_cases(case_path)
     service = IntentService()
-    service.settings.intent_message_fastpath_enabled = False
+    service.settings.intent_require_llm = True
     service.settings.qwen_intent_timeout_seconds = int(max(1, round(args.timeout)))
     if not service.settings.dashscope_api_key:
         raise SystemExit("DASHSCOPE_API_KEY is not configured.")

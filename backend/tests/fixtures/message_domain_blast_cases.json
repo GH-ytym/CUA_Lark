@@ -1,0 +1,122 @@
+[
+  {
+    "id": "send_direct_group",
+    "message": "给项目群发消息：今晚九点发布",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "项目群",
+      "text": "今晚九点发布"
+    }
+  },
+  {
+    "id": "send_in_chat",
+    "message": "请在项目群里发：今晚九点发布，注意回归验证。",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "项目群",
+      "text": "今晚九点发布，注意回归验证。"
+    }
+  },
+  {
+    "id": "send_tell_group",
+    "message": "跟项目群说今晚九点发布",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "项目群",
+      "text": "今晚九点发布"
+    }
+  },
+  {
+    "id": "send_sync_group",
+    "message": "麻烦在项目群同步一下：今晚九点发布",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "项目群",
+      "text": "今晚九点发布"
+    }
+  },
+  {
+    "id": "send_quote_contact",
+    "message": "给梅家济发个“hello”",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "梅家济",
+      "text": "hello"
+    }
+  },
+  {
+    "id": "search_group_publish",
+    "message": "搜索项目群里关于发布的消息",
+    "expected_capability_id": "im.messages_search",
+    "expected_payload": {
+      "chat_hint": "项目群",
+      "query": "发布"
+    }
+  },
+  {
+    "id": "search_group_regression",
+    "message": "帮我查一下项目群最近关于回归的消息",
+    "expected_capability_id": "im.messages_search",
+    "expected_payload": {
+      "chat_hint": "项目群",
+      "query": "回归"
+    }
+  },
+  {
+    "id": "list_group_records",
+    "message": "列出项目群最近的聊天记录",
+    "expected_capability_id": "im.chat_messages_list",
+    "expected_payload": {
+      "chat_hint": "项目群"
+    }
+  },
+  {
+    "id": "list_group_messages",
+    "message": "看看项目群最近消息",
+    "expected_capability_id": "im.chat_messages_list",
+    "expected_payload": {
+      "chat_hint": "项目群"
+    }
+  },
+  {
+    "id": "chat_search_named_group",
+    "message": "搜索群聊 发布小组",
+    "expected_capability_id": "im.chat_search",
+    "expected_payload": {
+      "query": "发布小组"
+    }
+  },
+  {
+    "id": "chat_search_find_group",
+    "message": "帮我找下叫发布小组的群",
+    "expected_capability_id": "im.chat_search",
+    "expected_payload": {
+      "query": "发布小组"
+    }
+  },
+  {
+    "id": "chat_create_release_sync",
+    "message": "创建群，名字叫发布同步群，描述是今晚发布同步",
+    "expected_capability_id": "im.chat_create",
+    "expected_payload": {
+      "name": "发布同步群",
+      "description": "今晚发布同步"
+    }
+  },
+  {
+    "id": "reply_previous_message",
+    "message": "回复上一条消息：收到，今晚九点发",
+    "expected_capability_id": "im.messages_reply",
+    "expected_payload": {
+      "text": "收到，今晚九点发"
+    }
+  },
+  {
+    "id": "reply_thread_like",
+    "message": "回一条：收到，我来跟进",
+    "expected_capability_id": "im.messages_reply",
+    "expected_payload": {
+      "text": "收到，我来跟进"
+    }
+  }
+]

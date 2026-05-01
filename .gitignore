@@ -35,3 +35,14 @@ docs/
 *.db
 *.sqlite
 *.sqlite3
+
+# Backend generated artifacts
+backend/tests/results/
+backend/backend/tests/results/
+backend/tmp_*.py
+backend/tests/scripts/*.json
+backend/tests/scripts/*.md
+backend/tests/scripts/*.txt
+
+# CUA runtime artifacts
+cua/assets/
