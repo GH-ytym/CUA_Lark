@@ -192,6 +192,12 @@ class LarkCliAdapter:
             return self._build_im_messages_search(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
         if invocation.tool_family == "lark-im" and invocation.operation == "messages_reply":
             return self._build_im_messages_reply(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-im" and invocation.operation == "chat_messages_list":
+            return self._build_im_chat_messages_list(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-im" and invocation.operation == "chat_search":
+            return self._build_im_chat_search(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-im" and invocation.operation == "chat_create":
+            return self._build_im_chat_create(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
         raise ValueError(
             f"unsupported cli invocation: tool={invocation.tool_family}, operation={invocation.operation}"
         )
@@ -272,6 +278,69 @@ class LarkCliAdapter:
         idempotency_key = str(arguments.get("idempotency_key", "")).strip()
         if idempotency_key:
             command.extend(["--idempotency-key", idempotency_key])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_im_chat_messages_list(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        chat_id = str(arguments.get("chat_id", "")).strip()
+        user_id = str(arguments.get("user_id", "")).strip()
+        if not chat_id and not user_id:
+            raise ValueError("missing chat_id/user_id for lark-im +chat-messages-list")
+        if chat_id and user_id:
+            raise ValueError("chat_id and user_id cannot both be set for lark-im +chat-messages-list")
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
+        if identity not in {"bot", "user"}:
+            raise ValueError("identity must be bot or user")
+        if user_id and identity != "user":
+            raise ValueError("lark-im +chat-messages-list with user_id requires user identity")
+        command = [cli_bin, "im", "+chat-messages-list", "--as", identity]
+        if chat_id:
+            command.extend(["--chat-id", chat_id])
+        else:
+            command.extend(["--user-id", user_id])
+        start_time = str(arguments.get("start_time", "")).strip()
+        if start_time:
+            command.extend(["--start", start_time])
+        end_time = str(arguments.get("end_time", "")).strip()
+        if end_time:
+            command.extend(["--end", end_time])
+        limit = arguments.get("limit")
+        if isinstance(limit, int) and limit > 0:
+            command.extend(["--page-size", str(limit)])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_im_chat_search(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        query = str(arguments.get("query", "")).strip()
+        if not query:
+            raise ValueError("missing query for lark-im +chat-search")
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
+        if identity not in {"bot", "user"}:
+            raise ValueError("identity must be bot or user")
+        command = [cli_bin, "im", "+chat-search", "--as", identity, "--query", query]
+        limit = arguments.get("limit")
+        if isinstance(limit, int) and limit > 0:
+            command.extend(["--page-size", str(limit)])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_im_chat_create(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        name = str(arguments.get("name", "")).strip()
+        if not name:
+            raise ValueError("missing name for lark-im +chat-create")
+        identity = str(arguments.get("identity", "bot")).strip().lower() or "bot"
+        if identity not in {"bot", "user"}:
+            raise ValueError("identity must be bot or user")
+        command = [cli_bin, "im", "+chat-create", "--as", identity, "--name", name]
+        description = str(arguments.get("description", "")).strip()
+        if description:
+            command.extend(["--description", description])
         if dry_run:
             command.append("--dry-run")
         return command

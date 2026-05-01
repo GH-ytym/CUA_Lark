@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--save-path",
-        default="backend/tests/scripts/intent_llm_stability_result.json",
+        default="backend/tests/results/intent/intent_llm_stability_result.json",
         help="JSON output path. The report is updated after each run.",
     )
     parser.add_argument(
@@ -93,7 +93,10 @@ async def run_once(service: IntentService, message: str, index: int) -> dict[str
 def to_output_path(raw_path: str) -> Path:
     path = Path(raw_path)
     if not path.is_absolute():
-        path = Path.cwd() / path
+        project_root = Path(__file__).resolve().parents[3]
+        backend_root = Path(__file__).resolve().parents[2]
+        project_candidate = project_root / path
+        path = project_candidate if project_candidate.exists() or str(path).startswith("backend/") else backend_root / path
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -232,7 +235,10 @@ def load_messages(args: argparse.Namespace) -> list[str]:
     if args.message_file:
         file_path = Path(args.message_file)
         if not file_path.is_absolute():
-            file_path = Path.cwd() / file_path
+            project_root = Path(__file__).resolve().parents[3]
+            backend_root = Path(__file__).resolve().parents[2]
+            project_candidate = project_root / file_path
+            file_path = project_candidate if project_candidate.exists() or str(file_path).startswith("backend/") else backend_root / file_path
         if file_path.exists():
             for line in file_path.read_text(encoding="utf-8").splitlines():
                 text = line.strip()

@@ -20,13 +20,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate Qwen structured capability parsing.")
     parser.add_argument(
         "--cases",
-        default="tests/scripts/intent_qwen_structured_cases.json",
-        help="JSON case file. Path is relative to backend/ by default.",
+        default="backend/tests/fixtures/intent_qwen_structured_cases.json",
+        help="JSON case file. Path is relative to project root by default.",
     )
     parser.add_argument(
         "--save-path",
-        default="tests/scripts/intent_qwen_structured_result.json",
-        help="JSON report output path. Path is relative to backend/ by default.",
+        default="backend/tests/results/intent/intent_qwen_structured_result.json",
+        help="JSON report output path. Path is relative to project root by default.",
     )
     parser.add_argument("--runs", type=int, default=1, help="Repeated runs per case.")
     parser.add_argument("--timeout", type=float, default=30.0, help="Timeout seconds per parse.")
@@ -38,7 +38,12 @@ def resolve_backend_path(raw_path: str) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
         return path
-    return Path.cwd() / path
+    project_root = Path(__file__).resolve().parents[3]
+    backend_root = Path(__file__).resolve().parents[2]
+    project_candidate = project_root / path
+    if project_candidate.exists() or str(path).startswith("backend/"):
+        return project_candidate
+    return backend_root / path
 
 
 def load_cases(path: Path) -> list[dict[str, Any]]:

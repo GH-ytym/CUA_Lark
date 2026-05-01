@@ -66,8 +66,10 @@ class IntentService:
         """Call Qwen with one-shot intent parse and robust fallback handling."""
         if not self.settings.dashscope_api_key:
             return None
+        lowered = message.lower()
+        system_prompt = self._message_intent_prompt() if self._looks_like_message_domain_request(message, lowered) else self._intent_prompt()
         intent_raw, llm_error = await self._request_llm_json(
-            system_prompt=self._intent_prompt(),
+            system_prompt=system_prompt,
             user_payload={"message": message, "context_hint": context_hint},
             max_tokens=256,
             contract_hint=self._intent_contract_hint(),
@@ -292,35 +294,94 @@ class IntentService:
         return not (has_target and has_text)
 
     @staticmethod
+    def _looks_like_message_domain_request(message: str, lowered: str) -> bool:
+        keywords = (
+            "???",
+            "????",
+            "??",
+            "??",
+            "??",
+            "????",
+            "??",
+            "??",
+            "???",
+            "chat",
+            "message",
+        )
+        if any(keyword in message for keyword in keywords):
+            return True
+        return any(keyword in lowered for keyword in ("chat", "message", "reply", "search"))
+
+    @staticmethod
+    def _message_intent_prompt() -> str:
+        return (
+            "??????????????????"
+            "????? JSON ????? markdown??????"
+            "?????capability_id, reason, action_plan, payload, missing_fields?"
+            "capability_id ????im.message_send|im.messages_reply|im.messages_search|im.chat_messages_list|im.chat_search|im.chat_create|unknown?"
+            "?????????????????? recipient?"
+            "?????????????????????????? im.message_send???????????? capability?"
+            "????????????????????????? payload.chat_hint?"
+            "????? chat_id ? user_id?????????? chat_hint ????"
+            "??? payload?chat_hint, chat_id, user_id, text?"
+            "???? payload?query, chat_hint, sender_hint, start_time, end_time?"
+            "?????? payload?chat_hint, chat_id, user_id, start_time, end_time, limit?"
+            "???? payload?message_id, thread_id, message_hint, text?"
+            "??? payload?query??? payload?name, member_hints, description?"
+            "??1??????????18:00?????? -> capability_id=im.message_send, payload.chat_hint=???, payload.text=??18:00??????"
+            "??2????? CUA-Lark-4 ???CI ????????????? -> capability_id=im.message_send, payload.chat_hint=CUA-Lark-4, payload.text=CI ?????????????"
+            "??3?????? CUA-Lark-4??? 9 ??????????? -> capability_id=im.message_send, payload.chat_hint=CUA-Lark-4, payload.text=?? 9 ???????????"
+            "??4??? CUA-Lark-4 ???????? -> capability_id=im.messages_search, payload.chat_hint=CUA-Lark-4, payload.query=???"
+            "??5??? CUA-Lark-4 ??????? -> capability_id=im.chat_messages_list, payload.chat_hint=CUA-Lark-4?"
+            "??6????? CUA-Lark-4 -> capability_id=im.chat_search, payload.query=CUA-Lark-4?"
+            "??7????????????????????? -> capability_id=im.chat_create, payload.name=????, payload.description=??????"
+            "?????????? unknown??????????????????"
+        )
+
+    @staticmethod
     def _intent_prompt() -> str:
         return (
-            "你是飞书任务解析器。把用户自然语言解析成可执行的标准动作。"
-            "只输出一个 JSON 对象，不要 markdown、解释、思考过程。"
-            "固定字段：capability_id, reason, action_plan, payload, missing_fields。"
-            "capability_id 必须是：im.message_send|im.messages_reply|im.messages_search|"
+            "?????????????????????????????"
+            "????? JSON ????? markdown?????????????"
+            "?????capability_id, reason, action_plan, payload, missing_fields?"
+            "capability_id ????im.message_send|im.messages_reply|im.messages_search|"
             "im.chat_messages_list|im.chat_search|im.chat_create|calendar.create|calendar.reschedule|"
             "calendar.agenda|calendar.freebusy|docs.create|docs.update|docs.search|sheets.update|"
-            "sheets.read|contact.search|task.create|mail.send|base.record_create|unknown。"
-            "payload 放任务参数；不确定的参数给空字符串或空数组，不要杜撰 ID。"
-            "missing_fields 列出执行该能力仍缺失的关键参数。"
-            "发消息 payload：chat_hint, chat_id, user_id, text。"
-            "消息回复 payload：message_id, thread_id, message_hint, text。"
-            "消息搜索 payload：query, chat_hint, sender_hint, start_time, end_time。"
-            "日程创建 payload：title, start_time, end_time, attendees, location。"
-            "日程改期 payload：event_hint, source_time, target_time。"
-            "文档创建 payload：title, content, folder_token。"
-            "表格更新 payload：spreadsheet_token, sheet_id, cell, value。"
-            "用户说“给X发消息：Y”必须是 im.message_send，payload.chat_hint=X, payload.text=Y。"
-            "用户说“搜索...消息”必须是 im.messages_search；用户说“回复...”必须是 im.messages_reply。"
+            "sheets.read|contact.search|task.create|mail.send|base.record_create|unknown?"
+            "payload ?????????????????????????? ID?"
+            "missing_fields ????????????????"
+            "?????????????????????? recipient?"
+            "????????????????? capability_id??????? im.message_send?"
+            "???????????????????????????????????????? recipient ??? payload.chat_hint?"
+            "???????? chat_id ? user_id??? payload.chat_hint ??????????? chat_id ? user_id ???"
+            "??? payload?chat_hint, chat_id, user_id, text?"
+            "???? payload?message_id, thread_id, message_hint, text?"
+            "???? payload?query, chat_hint, sender_hint, start_time, end_time?"
+            "?????? payload?chat_hint, chat_id, user_id, start_time, end_time, limit?"
+            "??? payload?query?"
+            "?? payload?name, member_hints, description?"
+            "???? payload?title, start_time, end_time, attendees, location?"
+            "???? payload?event_hint, source_time, target_time?"
+            "???? payload?title, content, folder_token?"
+            "???? payload?spreadsheet_token, sheet_id, cell, value?"
+            "??1?????????hello -> capability_id=im.message_send, payload.chat_hint=???, payload.text=hello?"
+            "??2????? CUA-Lark-4 ???CI ??? -> capability_id=im.message_send, payload.chat_hint=CUA-Lark-4, payload.text=CI ????"
+            "??3???????????????? -> capability_id=im.message_send, payload.chat_hint=???, payload.text=???????"
+            "??4??? CUA-Lark-4 ???????? -> capability_id=im.messages_search, payload.chat_hint=CUA-Lark-4, payload.query=???"
+            "??5??? CUA-Lark-4 ??????? -> capability_id=im.chat_messages_list, payload.chat_hint=CUA-Lark-4?"
+            "??????...?????? im.messages_search???????...???? im.messages_reply?"
         )
 
     @staticmethod
     def _message_entity_prompt() -> str:
         return (
-            "你是飞书消息实体提取器。只输出一个 JSON 对象，不要 markdown、解释、思考过程。"
-            "固定字段：chat_hint, chat_id, user_id, message_text。"
-            "chat_id/user_id 无法确定时给空字符串；不要杜撰 ID。"
-            "对于“跟梅家济说hello”应输出 chat_hint=梅家济, message_text=hello。"
+            "????????????????? JSON ????? markdown?????????????"
+            "?????chat_hint, chat_id, user_id, message_text?"
+            "??????????????????????????????? chat_hint?"
+            "chat_id/user_id ??????????????? ID?"
+            "??1?????? hello -> chat_hint=???, message_text=hello?"
+            "??2?? CUA-Lark-4 ?? CI ??? -> chat_hint=CUA-Lark-4, message_text=CI ????"
+            "??3???????????????? -> chat_hint=???, message_text=???????"
         )
 
     @staticmethod
@@ -418,10 +479,18 @@ class IntentService:
         if capability_id == CapabilityId.IM_MESSAGES_REPLY:
             text = self._extract_after_colon(message)
             return {"message_hint": text, "text": text, "identity": "bot"}
-        if capability_id in {CapabilityId.IM_MESSAGES_SEARCH, CapabilityId.IM_CHAT_SEARCH, CapabilityId.DOC_SEARCH, CapabilityId.CONTACT_SEARCH}:
+        if capability_id == CapabilityId.IM_MESSAGES_SEARCH:
+            return {
+                "query": self._extract_query(message),
+                "chat_hint": self._extract_message_target_hint(message),
+                "identity": "user",
+            }
+        if capability_id == CapabilityId.IM_CHAT_SEARCH:
+            return {"query": self._extract_query(message), "identity": "user"}
+        if capability_id in {CapabilityId.DOC_SEARCH, CapabilityId.CONTACT_SEARCH}:
             return {"query": self._extract_query(message)}
         if capability_id == CapabilityId.IM_CHAT_MESSAGES_LIST:
-            return {"chat_hint": self._extract_chat_hint(message), "limit": 20, "identity": "user"}
+            return {"chat_hint": self._extract_message_target_hint(message), "limit": 20, "identity": "user"}
         if capability_id == CapabilityId.IM_CHAT_CREATE:
             return {"name": self._extract_title(message), "member_hints": self._extract_member_hints(message), "identity": "bot"}
         if capability_id in {CapabilityId.CALENDAR_CREATE, CapabilityId.CALENDAR_RESCHEDULE}:
@@ -810,6 +879,19 @@ class IntentService:
         )
 
     @staticmethod
+    def _extract_message_target_hint(message: str) -> str:
+        patterns = [
+            r"(?:在|给|向|往)(?P<hint>[\w\u4e00-\u9fff -]{1,40}?)(?:里|群里|群中|里面)(?:发|发送|说|查|搜索|列出)",
+            r"(?:搜索|查找|查询|查看|列出)(?P<hint>[\w\u4e00-\u9fff -]{1,40}?)(?:里|群里|群中|里面)?(?:关于|最近|的消息|聊天记录)",
+            r"(?:发送消息给|发消息给|给)(?P<hint>[\w\u4e00-\u9fff -]{1,40}?)(?:：|:|发|发送|说)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, message)
+            if match:
+                return match.group("hint").strip()
+        return ""
+
+    @staticmethod
     def _extract_message_entities(message: str) -> dict[str, str]:
         recipient = ""
         content = ""
@@ -851,7 +933,12 @@ class IntentService:
         return self._looks_like_message_send_command(message, lowered)
 
     async def _resolve_message_recipient(self, decision: IntentDecision, message: str) -> IntentDecision:
-        if decision.standard_action.capability_id != CapabilityId.IM_MESSAGE_SEND:
+        capability_id = decision.standard_action.capability_id
+        if capability_id not in {
+            CapabilityId.IM_MESSAGE_SEND,
+            CapabilityId.IM_MESSAGES_SEARCH,
+            CapabilityId.IM_CHAT_MESSAGES_LIST,
+        }:
             return decision
         structured = decision.structured_command if isinstance(decision.structured_command, dict) else {}
         payload = structured.get("payload") if isinstance(structured.get("payload"), dict) else {}
@@ -860,7 +947,7 @@ class IntentService:
         resolved_payload = await self.recipient_resolver.resolve(message=message, payload=dict(payload))
         if resolved_payload == payload:
             return decision
-        if "identity" not in resolved_payload:
+        if not str(resolved_payload.get("identity", "")).strip():
             resolved_payload["identity"] = str(payload.get("identity", "")).strip() or "bot"
         updated_structured = dict(structured)
         updated_structured["payload"] = resolved_payload
@@ -869,7 +956,7 @@ class IntentService:
                 "standard_action": self._build_standard_action(
                     intent=decision.intent_type,
                     payload=resolved_payload,
-                    capability_id=decision.standard_action.capability_id,
+                    capability_id=capability_id,
                 ),
                 "structured_command": updated_structured,
             }

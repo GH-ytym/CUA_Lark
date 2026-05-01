@@ -100,6 +100,69 @@ def test_message_reply_requires_message_target() -> None:
         raise AssertionError("reply without message_id/thread_id should fail")
 
 
+def test_chat_messages_list_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_CHAT_MESSAGES_LIST,
+            payload={"chat_id": "oc_demo", "limit": 10, "identity": "user"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "im", "+chat-messages-list", "--as"]
+    assert "--chat-id" in argv
+    assert "oc_demo" in argv
+    assert "--page-size" in argv
+    assert "10" in argv
+    assert "--dry-run" in argv
+
+
+def test_chat_search_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_CHAT_SEARCH,
+            payload={"query": "项目群", "limit": 5, "identity": "user"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "im", "+chat-search", "--as"]
+    assert "--query" in argv
+    assert "项目群" in argv
+    assert "--page-size" in argv
+    assert "5" in argv
+    assert "--dry-run" in argv
+
+
+def test_chat_create_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_CHAT_CREATE,
+            payload={"name": "发布小组", "description": "发布同步群", "identity": "bot"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "im", "+chat-create", "--as"]
+    assert "--name" in argv
+    assert "发布小组" in argv
+    assert "--description" in argv
+    assert "发布同步群" in argv
+    assert "--dry-run" in argv
+
+
 def test_execute_invalid_payload_returns_result_invalid() -> None:
     service = LarkCliService()
     result = service.execute(
