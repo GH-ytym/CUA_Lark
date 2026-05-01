@@ -14,7 +14,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.domain.enums import IntentType
+from app.domain.enums import CapabilityId
 from app.integrations.lark_cli_adapter import CliInvocation, LarkCliAdapter
 from app.services.intent_service import IntentService
 from app.services.lark_cli_service import LarkCliService
@@ -159,8 +159,12 @@ async def run(rounds: int, db_path: Path, report_path: Path) -> Path:
             else:
                 compare = "不一致（字段抽取差异）"
 
-            execute_payload = dict(structured_payload)
-            execution = cli_service.execute(intent=IntentType.MESSAGE_SEND, payload=execute_payload, dry_run=True)
+            execution = cli_service.execute_action(
+                action=decision.standard_action.model_copy(
+                    update={"payload": dict(decision.standard_action.payload) | {"dry_run": True}}
+                ),
+                dry_run=True,
+            )
             if execution.success:
                 passed_execution += 1
             if compare == "一致":
@@ -173,12 +177,13 @@ async def run(rounds: int, db_path: Path, report_path: Path) -> Path:
                     f"cost={first_step.get('duration_ms')}ms"
                 )
             if not execution.success and execution.error_code is not None:
-                exec_brief = f"{exec_brief}, code={execution.error_code.value}, reason={execution.summary}"
+                error_code = execution.error_code.value if hasattr(execution.error_code, "value") else str(execution.error_code)
+                exec_brief = f"{exec_brief}, code={error_code}, reason={execution.summary}"
 
             structured_text = json.dumps(
                 {
                     "parse_source": decision.parse_source,
-                    "intent_type": decision.intent_type.value,
+                    "capability_id": decision.standard_action.capability_id.value,
                     "payload": structured_payload,
                     "note": case.note,
                 },

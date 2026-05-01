@@ -120,17 +120,22 @@ def build_report(results: list[dict[str, Any]], args: argparse.Namespace) -> dic
     total = len(results)
     passed = sum(1 for item in results if item["passed"])
     capability_passed = sum(1 for item in results if item["capability_match"])
+    elapsed_values = [float(item["elapsed_ms"]) for item in results if isinstance(item.get("elapsed_ms"), int | float)]
     by_case: dict[str, dict[str, Any]] = {}
     for item in results:
         key = str(item["id"])
-        group = by_case.setdefault(key, {"runs": 0, "passed": 0, "capability_passed": 0})
+        group = by_case.setdefault(key, {"runs": 0, "passed": 0, "capability_passed": 0, "elapsed_ms": []})
         group["runs"] += 1
         group["passed"] += int(bool(item["passed"]))
         group["capability_passed"] += int(bool(item["capability_match"]))
+        group["elapsed_ms"].append(float(item["elapsed_ms"]))
     for group in by_case.values():
         runs = max(1, int(group["runs"]))
         group["pass_rate"] = round(group["passed"] / runs, 4)
         group["capability_pass_rate"] = round(group["capability_passed"] / runs, 4)
+        case_elapsed = group.pop("elapsed_ms")
+        group["average_ms"] = round(sum(case_elapsed) / max(1, len(case_elapsed)), 2)
+        group["p90_ms"] = percentile(case_elapsed, 90)
     return {
         "updated_at": datetime.now(UTC).isoformat(),
         "runtime": {
@@ -143,10 +148,20 @@ def build_report(results: list[dict[str, Any]], args: argparse.Namespace) -> dic
             "pass_rate": round(passed / max(1, total), 4),
             "capability_passed": capability_passed,
             "capability_pass_rate": round(capability_passed / max(1, total), 4),
+            "average_ms": round(sum(elapsed_values) / max(1, len(elapsed_values)), 2),
+            "p90_ms": percentile(elapsed_values, 90),
         },
         "by_case": by_case,
         "results": results,
     }
+
+
+def percentile(values: list[float], p: int) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = int(round((len(ordered) - 1) * p / 100))
+    return round(ordered[index], 2)
 
 
 async def main() -> None:
@@ -157,6 +172,7 @@ async def main() -> None:
     cases = load_cases(case_path)
     service = IntentService()
     service.settings.intent_message_fastpath_enabled = False
+    service.settings.qwen_intent_timeout_seconds = int(max(1, round(args.timeout)))
     if not service.settings.dashscope_api_key:
         raise SystemExit("DASHSCOPE_API_KEY is not configured.")
 

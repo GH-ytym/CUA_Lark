@@ -17,15 +17,12 @@ def test_llm_two_stage_message_parse() -> None:
     responses = [
         json.dumps(
             {
-                "intent_type": "message_send",
+                "capability_id": "im.message_send",
                 "reason": "用户要发消息",
                 "action_plan": ["定位接收对象", "整理消息正文", "发送消息"],
-                "entities": {"chat_hint": "梅家济", "chat_id": "", "user_id": "", "message_text": "hello"},
+                "payload": {"chat_hint": "梅家济", "chat_id": "", "user_id": "", "text": "hello"},
+                "missing_fields": [],
             },
-            ensure_ascii=False,
-        ),
-        json.dumps(
-            {"chat_hint": "梅家济", "chat_id": "", "user_id": "", "message_text": "hello"},
             ensure_ascii=False,
         ),
     ]
@@ -59,10 +56,11 @@ def test_llm_skips_second_stage_when_entities_complete() -> None:
         return (
             json.dumps(
                 {
-                    "intent_type": "message_send",
+                    "capability_id": "im.message_send",
                     "reason": "用户要发消息",
                     "action_plan": ["定位接收对象", "整理消息正文", "发送消息"],
-                    "entities": {"chat_hint": "梅家济", "chat_id": "", "user_id": "", "message_text": "hello"},
+                    "payload": {"chat_hint": "梅家济", "chat_id": "", "user_id": "", "text": "hello"},
+                    "missing_fields": [],
                 },
                 ensure_ascii=False,
             ),
@@ -195,8 +193,8 @@ def test_qwen_unknown_is_repaired_to_message_search() -> None:
     decision = asyncio.run(service.parse("搜索项目群里关于发布的消息"))
 
     assert decision.parse_source == "qwen"
-    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGES_SEARCH
-    assert decision.standard_action.payload.get("query") == "发布"
+    assert decision.standard_action.capability_id == CapabilityId.UNKNOWN
+    assert decision.intent_type.value == "unknown"
 
 
 def test_qwen_unknown_is_repaired_to_message_reply() -> None:
@@ -222,8 +220,8 @@ def test_qwen_unknown_is_repaired_to_message_reply() -> None:
     decision = asyncio.run(service.parse("回复上一条消息：收到"))
 
     assert decision.parse_source == "qwen"
-    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGES_REPLY
-    assert decision.standard_action.payload.get("text") == "收到"
+    assert decision.standard_action.capability_id == CapabilityId.UNKNOWN
+    assert decision.intent_type.value == "unknown"
 
 
 def test_message_fastpath_strips_send_message_verb() -> None:
@@ -242,6 +240,73 @@ def test_message_fastpath_strips_send_message_verb() -> None:
     assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
     assert payload.get("chat_hint") == "梅家济"
     assert payload.get("text") == "“hello”"
+
+
+def test_message_fastpath_handles_casual_say_pattern() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = ""
+    message = "跟项目群说今晚九点发布"
+
+    async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = kwargs.get("payload", {})
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    service.recipient_resolver.resolve = unresolved_resolve  # type: ignore[method-assign]
+    decision = asyncio.run(service.parse(message))
+    payload = decision.structured_command.get("payload", {})
+
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert payload.get("chat_hint") == "项目群"
+    assert payload.get("text") == "今晚九点发布"
+
+
+def test_message_payload_uses_local_fallback_when_llm_returns_empty_target() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+    service.settings.intent_message_fastpath_enabled = False
+
+    async def unresolved_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = kwargs.get("payload", {})
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "capability_id": "im.message_send",
+                    "reason": "Qwen parsed send message",
+                    "action_plan": ["解析收件人", "发送消息"],
+                    "payload": {"chat_hint": "", "chat_id": "", "user_id": "", "text": ""},
+                    "missing_fields": [],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service.recipient_resolver.resolve = unresolved_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+    decision = asyncio.run(service.parse("发送消息给项目群：今晚九点发布"))
+    payload = decision.structured_command.get("payload", {})
+
+    assert decision.parse_source == "qwen"
+    assert payload.get("chat_hint") == ""
+    assert payload.get("text") == ""
+    assert payload.get("identity") == "bot"
+
+
+def test_mail_and_task_are_not_classified_as_message_send() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = ""
+
+    mail_decision = asyncio.run(service.parse("给李四发邮件，主题是会议纪要，内容是请查收附件"))
+    task_decision = asyncio.run(service.parse("给张三创建一个任务：明天下午三点前提交周报"))
+
+    assert mail_decision.standard_action.capability_id == CapabilityId.MAIL_SEND
+    assert mail_decision.standard_action.payload.get("subject") == "会议纪要"
+    assert mail_decision.standard_action.payload.get("body") == "请查收附件"
+    assert task_decision.standard_action.capability_id == CapabilityId.TASK_CREATE
+    assert task_decision.standard_action.payload.get("title") == "明天下午三点前提交周报"
 
 
 def test_local_resolution_skips_llm() -> None:
@@ -264,7 +329,7 @@ def test_local_resolution_skips_llm() -> None:
     service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("给项目群发今晚发布"))
     payload = decision.structured_command.get("payload", {})
-    assert decision.parse_source == "rules_resolve_first"
+    assert decision.parse_source == "rules"
     assert payload.get("chat_id") == "oc_proj"
     assert payload.get("resolution_status") == "resolved"
 
@@ -290,6 +355,6 @@ def test_local_confirmation_skips_llm() -> None:
     service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
     decision = asyncio.run(service.parse("给王发你好"))
     payload = decision.structured_command.get("payload", {})
-    assert decision.parse_source == "rules_resolve_first"
+    assert decision.parse_source == "rules"
     assert payload.get("resolution_status") == "needs_confirmation"
     assert len(payload.get("resolution_candidates", [])) == 2

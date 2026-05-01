@@ -1,0 +1,544 @@
+{
+  "updated_at": "2026-05-01T02:47:44.837546+00:00",
+  "runtime": {
+    "runs_per_case": 1,
+    "timeout": 45.0
+  },
+  "summary": {
+    "total": 12,
+    "passed": 9,
+    "pass_rate": 0.75,
+    "capability_passed": 10,
+    "capability_pass_rate": 0.8333
+  },
+  "by_case": {
+    "im_send_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "im_send_casual": {
+      "runs": 1,
+      "passed": 0,
+      "capability_passed": 1,
+      "pass_rate": 0.0,
+      "capability_pass_rate": 1.0
+    },
+    "im_search_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "im_reply_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "calendar_create_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "calendar_reschedule_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "docs_create_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "docs_search_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "sheets_update_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "contact_search_zh": {
+      "runs": 1,
+      "passed": 1,
+      "capability_passed": 1,
+      "pass_rate": 1.0,
+      "capability_pass_rate": 1.0
+    },
+    "task_create_zh": {
+      "runs": 1,
+      "passed": 0,
+      "capability_passed": 0,
+      "pass_rate": 0.0,
+      "capability_pass_rate": 0.0
+    },
+    "mail_send_zh": {
+      "runs": 1,
+      "passed": 0,
+      "capability_passed": 0,
+      "pass_rate": 0.0,
+      "capability_pass_rate": 0.0
+    }
+  },
+  "results": [
+    {
+      "id": "im_send_zh",
+      "run": 1,
+      "message": "给梅家济发消息：“hello”",
+      "elapsed_ms": 14470.42,
+      "parse_source": "qwen",
+      "reason": "用户明确要求给特定联系人发送消息。; repaired_by_rules:im.message_send",
+      "expected_capability_id": "im.message_send",
+      "actual_capability_id": "im.message_send",
+      "capability_match": true,
+      "expected_payload": {
+        "chat_hint": "梅家济",
+        "text": "“hello”"
+      },
+      "actual_payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "“hello”",
+        "idempotency_key": "",
+        "identity": "",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.0
+      },
+      "payload_checks": [
+        {
+          "field": "chat_hint",
+          "expected": "梅家济",
+          "actual": "梅家济",
+          "match": true
+        },
+        {
+          "field": "text",
+          "expected": "“hello”",
+          "actual": "“hello”",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "im_send_casual",
+      "run": 1,
+      "message": "跟项目群说今晚九点发布",
+      "elapsed_ms": 16007.76,
+      "parse_source": "qwen",
+      "reason": "用户要求向项目群发送消息; repaired_by_rules:im.message_send",
+      "expected_capability_id": "im.message_send",
+      "actual_capability_id": "im.message_send",
+      "capability_match": true,
+      "expected_payload": {
+        "chat_hint": "项目群",
+        "text": "今晚九点发布"
+      },
+      "actual_payload": {
+        "chat_hint": "项目群说今晚九点",
+        "chat_id": "",
+        "user_id": "",
+        "text": "布",
+        "idempotency_key": "",
+        "identity": "",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.1818
+          },
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          }
+        ]
+      },
+      "payload_checks": [
+        {
+          "field": "chat_hint",
+          "expected": "项目群",
+          "actual": "项目群说今晚九点",
+          "match": true
+        },
+        {
+          "field": "text",
+          "expected": "今晚九点发布",
+          "actual": "布",
+          "match": false
+        }
+      ],
+      "payload_match": false,
+      "passed": false
+    },
+    {
+      "id": "im_search_zh",
+      "run": 1,
+      "message": "搜索项目群里关于发布的消息",
+      "elapsed_ms": 9035.22,
+      "parse_source": "qwen",
+      "reason": "用户要求搜索特定群组中关于特定主题的消息; repaired_by_rules:im.messages_search",
+      "expected_capability_id": "im.messages_search",
+      "actual_capability_id": "im.messages_search",
+      "capability_match": true,
+      "expected_payload": {
+        "query": "发布"
+      },
+      "actual_payload": {
+        "query": "发布",
+        "chat_hint": "",
+        "chat_id": "",
+        "sender_hint": "",
+        "start_time": "",
+        "end_time": "",
+        "limit": 20,
+        "identity": ""
+      },
+      "payload_checks": [
+        {
+          "field": "query",
+          "expected": "发布",
+          "actual": "发布",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "im_reply_zh",
+      "run": 1,
+      "message": "回复上一条消息：收到",
+      "elapsed_ms": 18727.5,
+      "parse_source": "qwen",
+      "reason": "用户要求回复上一条消息; repaired_by_rules:im.messages_reply",
+      "expected_capability_id": "im.messages_reply",
+      "actual_capability_id": "im.messages_reply",
+      "capability_match": true,
+      "expected_payload": {
+        "text": "收到"
+      },
+      "actual_payload": {
+        "message_hint": "收到",
+        "text": "收到",
+        "message_id": "",
+        "thread_id": "",
+        "reply_in_thread": "",
+        "idempotency_key": "",
+        "identity": ""
+      },
+      "payload_checks": [
+        {
+          "field": "text",
+          "expected": "收到",
+          "actual": "收到",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "calendar_create_zh",
+      "run": 1,
+      "message": "安排会议，标题叫项目复盘，明天下午三点到四点，邀请梅家济",
+      "elapsed_ms": 16917.2,
+      "parse_source": "qwen",
+      "reason": "用户明确要求安排会议，提供了标题、时间和参会人信息。",
+      "expected_capability_id": "calendar.create",
+      "actual_capability_id": "calendar.create",
+      "capability_match": true,
+      "expected_payload": {
+        "title": "项目复盘"
+      },
+      "actual_payload": {
+        "title": "项目复盘",
+        "start_time": "明天下午三点",
+        "end_time": "明天下午四点",
+        "attendees": [
+          "梅家济"
+        ],
+        "location": "",
+        "description": ""
+      },
+      "payload_checks": [
+        {
+          "field": "title",
+          "expected": "项目复盘",
+          "actual": "项目复盘",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "calendar_reschedule_zh",
+      "run": 1,
+      "message": "帮我把明天下午三点的会议改到四点",
+      "elapsed_ms": 10929.6,
+      "parse_source": "qwen",
+      "reason": "用户要求将明天下午三点的会议改期到四点",
+      "expected_capability_id": "calendar.reschedule",
+      "actual_capability_id": "calendar.reschedule",
+      "capability_match": true,
+      "expected_payload": {
+        "target_time": "四点"
+      },
+      "actual_payload": {
+        "event_hint": "明天下午三点的会议",
+        "target_time": "明天下午四点",
+        "source_time": "明天下午三点",
+        "calendar_id": ""
+      },
+      "payload_checks": [
+        {
+          "field": "target_time",
+          "expected": "四点",
+          "actual": "明天下午四点",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "docs_create_zh",
+      "run": 1,
+      "message": "帮我创建一个文档，标题叫项目复盘",
+      "elapsed_ms": 15607.67,
+      "parse_source": "qwen",
+      "reason": "用户明确要求创建一个标题为“项目复盘”的文档，符合文档创建能力。",
+      "expected_capability_id": "docs.create",
+      "actual_capability_id": "docs.create",
+      "capability_match": true,
+      "expected_payload": {
+        "title": "项目复盘"
+      },
+      "actual_payload": {
+        "title": "项目复盘",
+        "content": "",
+        "folder_token": ""
+      },
+      "payload_checks": [
+        {
+          "field": "title",
+          "expected": "项目复盘",
+          "actual": "项目复盘",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "docs_search_zh",
+      "run": 1,
+      "message": "搜索文档项目复盘",
+      "elapsed_ms": 9403.52,
+      "parse_source": "qwen",
+      "reason": "用户明确要求搜索文档，关键词为“项目复盘”。",
+      "expected_capability_id": "docs.search",
+      "actual_capability_id": "docs.search",
+      "capability_match": true,
+      "expected_payload": {
+        "query": "项目复盘"
+      },
+      "actual_payload": {
+        "query": "项目复盘"
+      },
+      "payload_checks": [
+        {
+          "field": "query",
+          "expected": "项目复盘",
+          "actual": "项目复盘",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "sheets_update_zh",
+      "run": 1,
+      "message": "把表格A1更新为hello",
+      "elapsed_ms": 20213.17,
+      "parse_source": "qwen",
+      "reason": "用户要求更新表格单元格内容。",
+      "expected_capability_id": "sheets.update",
+      "actual_capability_id": "sheets.update",
+      "capability_match": true,
+      "expected_payload": {
+        "cell": "A1",
+        "value": "hello"
+      },
+      "actual_payload": {
+        "sheet_hint": "A1更新为hello",
+        "cell": "A1",
+        "value": "hello",
+        "spreadsheet_token": "",
+        "sheet_id": ""
+      },
+      "payload_checks": [
+        {
+          "field": "cell",
+          "expected": "A1",
+          "actual": "A1",
+          "match": true
+        },
+        {
+          "field": "value",
+          "expected": "hello",
+          "actual": "hello",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "contact_search_zh",
+      "run": 1,
+      "message": "搜索联系人梅家济",
+      "elapsed_ms": 13898.31,
+      "parse_source": "qwen",
+      "reason": "用户明确要求搜索联系人“梅家济”，匹配contact.search能力。",
+      "expected_capability_id": "contact.search",
+      "actual_capability_id": "contact.search",
+      "capability_match": true,
+      "expected_payload": {
+        "query": "梅家济"
+      },
+      "actual_payload": {
+        "query": "梅家济"
+      },
+      "payload_checks": [
+        {
+          "field": "query",
+          "expected": "梅家济",
+          "actual": "梅家济",
+          "match": true
+        }
+      ],
+      "payload_match": true,
+      "passed": true
+    },
+    {
+      "id": "task_create_zh",
+      "run": 1,
+      "message": "给张三创建一个任务：明天下午三点前提交周报",
+      "elapsed_ms": 21421.73,
+      "parse_source": "rules",
+      "reason": "no capability pattern matched",
+      "expected_capability_id": "task.create",
+      "actual_capability_id": "unknown",
+      "capability_match": false,
+      "expected_payload": {
+        "title": "明天下午三点前提交周报"
+      },
+      "actual_payload": {},
+      "payload_checks": [
+        {
+          "field": "title",
+          "expected": "明天下午三点前提交周报",
+          "actual": null,
+          "match": false
+        }
+      ],
+      "payload_match": false,
+      "passed": false
+    },
+    {
+      "id": "mail_send_zh",
+      "run": 1,
+      "message": "给李四发邮件，主题是会议纪要，内容是请查收附件",
+      "elapsed_ms": 21440.67,
+      "parse_source": "rules_after_llm",
+      "reason": "llm_failed: timeout",
+      "expected_capability_id": "mail.send",
+      "actual_capability_id": "im.message_send",
+      "capability_match": false,
+      "expected_payload": {
+        "subject": "会议纪要",
+        "body": "请查收附件"
+      },
+      "actual_payload": {
+        "chat_hint": "李四",
+        "chat_id": "",
+        "user_id": "",
+        "text": "邮件，主题是会议纪要，内容是请查收附件",
+        "idempotency_key": "",
+        "identity": "",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "李浩",
+            "entity_type": "contact",
+            "entity_id": "ou_003744424dcf9d548f68530460958963",
+            "score": 0.5
+          },
+          {
+            "name": "李皓",
+            "entity_type": "contact",
+            "entity_id": "ou_adee2e675b91528a6b696f03f778880f",
+            "score": 0.5
+          },
+          {
+            "name": "李雲帆",
+            "entity_type": "contact",
+            "entity_id": "ou_31d0fe27ad34b21aadb95f13d260e992",
+            "score": 0.4
+          }
+        ]
+      },
+      "payload_checks": [
+        {
+          "field": "subject",
+          "expected": "会议纪要",
+          "actual": null,
+          "match": false
+        },
+        {
+          "field": "body",
+          "expected": "请查收附件",
+          "actual": null,
+          "match": false
+        }
+      ],
+      "payload_match": false,
+      "passed": false
+    }
+  ]
+}
