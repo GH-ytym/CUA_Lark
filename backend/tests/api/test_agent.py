@@ -4,6 +4,7 @@ from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import ExecutorResult
 from app.main import create_app
 from app.services.intent_service import IntentDecision
+from shared.error_codes import UnifiedErrorCode
 
 
 def test_execute_returns_confirmation_candidates(monkeypatch) -> None:
@@ -50,6 +51,17 @@ def test_execute_returns_confirmation_candidates(monkeypatch) -> None:
     assert data["needs_confirmation"] is True
     assert len(data["resolution_candidates"]) == 2
     assert data["structured_payload"]["resolution_status"] == "needs_confirmation"
+
+
+def test_get_cua_boundary_returns_integer_catalog() -> None:
+    client = TestClient(create_app())
+    response = client.get("/api/agent/cua-boundary")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["cli_trigger_error_codes"] == [1, 2, 3, 4, 5, 6, 7]
+    assert data["cua_abort_error_codes"] == [6, 8, 9]
+    assert any(item["code"] == 3 and item["name"] == "PERMISSION_DENIED" for item in data["error_code_catalog"])
 
 
 def test_execute_applies_confirmed_entity_id(monkeypatch) -> None:
@@ -195,12 +207,12 @@ def test_execute_runs_cua_fallback_when_cli_failed(monkeypatch) -> None:
             success=False,
             status=ExecutionStatus.CLI_FAILED,
             summary="cli command failed",
-            error_code="permission_denied",
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
             payload={
                 "domain": "message",
                 "dry_run": False,
                 "steps": [{"exit_code": 2}],
-                "error": {"code": "permission_denied"},
+                "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"},
             },
         ),
     )
@@ -232,7 +244,8 @@ def test_execute_runs_cua_fallback_when_cli_failed(monkeypatch) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["execution_status"] == "completed"
-    assert data["cli_error_code"] == "permission_denied"
+    assert data["cli_error_code"] == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert data["cua_error_code"] is None
     assert data["cua_should_trigger"] is True
     assert data["execution_summary"] == "cua fallback executed"
     assert data["execution_payload"]["mode"] == "cua_fallback"

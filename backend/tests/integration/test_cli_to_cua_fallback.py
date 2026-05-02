@@ -4,6 +4,7 @@ from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, Intent
 from app.domain.models import ExecutorResult, StandardAction
 from app.main import create_app
 from app.services.intent_service import IntentDecision
+from shared.error_codes import UnifiedErrorCode
 
 
 def test_execute_command_automatically_falls_back_to_cua(monkeypatch) -> None:
@@ -41,8 +42,12 @@ def test_execute_command_automatically_falls_back_to_cua(monkeypatch) -> None:
             success=False,
             status=ExecutionStatus.CLI_FAILED,
             summary="cli command failed",
-            error_code="permission_denied",
-            payload={"domain": "message", "steps": [{"exit_code": 2}], "error": {"code": "permission_denied"}},
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
+            payload={
+                "domain": "message",
+                "steps": [{"exit_code": 2}],
+                "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"},
+            },
         ),
     )
     monkeypatch.setattr(

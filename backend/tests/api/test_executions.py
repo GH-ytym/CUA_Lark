@@ -4,6 +4,7 @@ from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import ExecutorResult
 from app.main import create_app
 from app.services.intent_service import IntentDecision
+from shared.error_codes import UnifiedErrorCode
 
 
 def test_get_execution_detail_returns_recorded_steps(monkeypatch) -> None:
@@ -37,8 +38,12 @@ def test_get_execution_detail_returns_recorded_steps(monkeypatch) -> None:
             success=False,
             status=ExecutionStatus.CLI_FAILED,
             summary="cli command failed",
-            error_code="permission_denied",
-            payload={"domain": "message", "steps": [{"exit_code": 2}], "error": {"code": "permission_denied"}},
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
+            payload={
+                "domain": "message",
+                "steps": [{"exit_code": 2}],
+                "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"},
+            },
         ),
     )
     monkeypatch.setattr(

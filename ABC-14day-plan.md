@@ -6,11 +6,11 @@
 | --- | --- | --- | --- |
 | 1 | 冻结 MVP 能力范围；设计 Agent 状态机 | 产出状态流转图（解析/确认/CLI/CUA/完成/失败/取消） | 起草统一错误码 |
 | 2 | 搭 FastAPI 工程骨架、请求上下文、基础配置 | 本地可启动；健康检查、CORS、请求链路 ID 可验证 | 建立项目日志规范 |
-| 3 | 意图解析与标准动作模型 v1 | 自然语言可解析为 `capability + payload + executor_hint` | 增加参数缺失提示 |
+| 3 | 意图解析与标准动作模型 v1 | 自然语言可解析为有序 `tasks[n].capability + payload + executor_hint`，支持 3-4 个跨域任务拆分 | 增加参数缺失提示 |
 | 4 | CLI 通用执行器与结果归一化 | 任意 CLI 调用可返回统一 `ExecutorResult`，含 stdout/stderr/耗时/错误码 | 增加 dry-run 调试模式 |
 | 5 | MVP 能力 1：`im.message_send` | 发消息链路可执行；支持联系人/群解析、幂等键、权限错误归一化 | 增加消息回复/搜索预研 |
-| 6 | 任务编排器 v1 | API 接收任务后可创建 `task_id`，驱动解析、确认、CLI 执行、状态落表/内存存储 | 暴露任务详情查询接口 |
-| 7 | CLI 失败到 CUA 的回退闭环 | CLI 失败后能组装 CUA 请求并触发 CUA 执行，回写最终状态 | 回退原因写入日志 |
+| 6 | 任务编排器 v1 | API 接收任务后可创建 `task_id`，保存有序 `planned_actions`，并按顺序执行可落地任务 | 暴露任务详情查询接口 |
+| 7 | CLI 失败到 CUA 的回退闭环 | CLI 失败后能按整数错误码组装 fallback request、触发 CUA 执行，并回写最终状态与失败归因 | 回退原因写入日志 |
 | 8 | 超时、取消、重试机制 | CLI/CUA 执行超时可中断；重试次数、退避策略可配置；取消接口可用 | 失败补偿策略草案 |
 | 9 | 执行进度流与前端联调接口 | `/executions/{task_id}/stream` 可输出 queued/running/fallback/completed/failed/canceled | 保留 Redis 队列接口设计 |
 | 10 | 可观测性（链路 ID + 结构化日志） | 单次任务可按 chain_id 完整追踪，含 CLI/CUA 步骤、耗时、失败原因 | 暴露调试查询接口 |
@@ -29,6 +29,22 @@
 - 支撑能力：`contact.search` 用于人/群解析，`task.create` 用于执行后落待办，`mail.send` 用于通知补充链路
 - 编排器不直接按 `lark-im/lark-doc` 分支判断，只调用 capability registry 生成 CLI invocation
 - 未接入或执行失败的 capability 统一进入 CUA fallback 判断
+- 本轮明确不做多任务规划：每次请求只生成一个 `StandardAction`，`action_plan` 仅用于说明，不参与执行拆分
+
+### A/day7 补充说明
+
+- 允许触发 CUA 的 CLI 整数错误码：`1` 限流、`2` 不支持、`3` 权限问题、`4` 输入或结果无效、`5` 执行错误、`6` 超时、`7` 必须切换执行器。
+- fallback request 至少包含：`task_id`、`raw_message`、`standard_action`、`cli_error_code`、`cli_payload`、`cua_request`。
+- 状态流转必须保留：`cli_finished -> cua_started -> cua_finished`；若 CUA 成功则写 `completed`，若 CUA 失败则写 `failed`，并记录最终 `cua_error_code`。
+- 日志与回包都要保留调试字段：`error.code` 使用整数，`error.name` 保留字符串别名，`triggered_by.cli_error_code` 回写原始 CLI 触发码。
+- 演示验收至少覆盖两类案例：`CLI 权限失败 -> CUA 接管成功`，以及 `CLI 失败 -> CUA 也失败并回写最终错误码`。
+
+### A/day3 与 day6 补充说明
+
+- day3 多任务解析目标：一条自然语言可拆成 3-4 个子任务，保持用户原始顺序，不做并行重排。
+- 结构化输出统一写入 `structured_command.tasks[]`，每项至少包含：`order`、`raw_message`、`capability_id`、`payload`、`missing_fields`。
+- day6 编排目标：`planned_actions` 顺序保存在任务对象中；消息域走完整 CLI/CUA 执行链路，其他未打通域先保留 structured-only 结果，不阻塞后续顺序任务。
+- 本轮仍不做真正的多任务并行执行、依赖图优化或父子任务重试树，只做顺序拆分与顺序安排。
 
 ## B表（CUA/视觉保底负责人）
 

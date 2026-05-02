@@ -56,7 +56,7 @@ class ExecutorResult(BaseModel):
     status: ExecutionStatus
     summary: str
     payload: dict[str, object] = Field(default_factory=dict)
-    error_code: str = ""
+    error_code: int | None = None
     duration_ms: float = 0.0
 
 
@@ -70,6 +70,19 @@ class TaskStep(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
+class PlannedActionItem(BaseModel):
+    """One ordered subtask planned from a natural-language request."""
+
+    order: int
+    raw_message: str = ""
+    standard_action: StandardAction = Field(default_factory=StandardAction)
+    status: str = "planned"
+    summary: str = ""
+    needs_confirmation: bool = False
+    error_code: int | None = None
+    execution_payload: dict[str, object] = Field(default_factory=dict)
+
+
 class OrchestrationTask(BaseModel):
     """In-memory task record produced by the v1 orchestrator."""
 
@@ -80,6 +93,7 @@ class OrchestrationTask(BaseModel):
     status: ExecutionStatus = ExecutionStatus.QUEUED
     intent_type: IntentType = IntentType.UNKNOWN
     standard_action: StandardAction = Field(default_factory=StandardAction)
+    planned_actions: list[PlannedActionItem] = Field(default_factory=list)
     executor_result: ExecutorResult | None = None
     needs_confirmation: bool = False
     steps: list[TaskStep] = Field(default_factory=list)

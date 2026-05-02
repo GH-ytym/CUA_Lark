@@ -25,14 +25,14 @@
 
 ## LLM 配置
 
-后端意图解析统一使用阿里云百炼 Qwen OpenAI-compatible 接口。默认模型为 `qwen3.6-flash`，默认北京地域地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`。
+后端意图解析统一使用阿里云百炼 Qwen OpenAI-compatible 接口。默认模型为 `qwen3.6-max`，默认北京地域地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`。
 
 在本地 `.env` 中配置：
 
 ```env
 DASHSCOPE_API_KEY=
 QWEN_CHAT_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
-QWEN_MODEL=qwen3.6-flash
+QWEN_MODEL=qwen3.6-max
 ```
 
 ## 当前状态

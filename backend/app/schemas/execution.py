@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.domain.enums import ExecutionStatus, IntentType
-from app.domain.models import ExecutorResult, StandardAction, TaskStep
+from app.domain.models import ExecutorResult, PlannedActionItem, StandardAction, TaskStep
 
 
 class ExecutionDetailResponse(BaseModel):
@@ -18,6 +18,7 @@ class ExecutionDetailResponse(BaseModel):
     status: ExecutionStatus
     intent_type: IntentType
     standard_action: StandardAction = Field(default_factory=StandardAction)
+    planned_actions: list[PlannedActionItem] = Field(default_factory=list)
     needs_confirmation: bool = False
     executor_result: ExecutorResult | None = None
     steps: list[TaskStep] = Field(default_factory=list)

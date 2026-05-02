@@ -3,6 +3,7 @@ import subprocess
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
 from app.domain.models import StandardAction
 from app.services.lark_cli_service import LarkCliService
+from shared.error_codes import UnifiedErrorCode
 
 
 def test_execute_success_uses_unified_payload(monkeypatch) -> None:
@@ -171,9 +172,10 @@ def test_execute_invalid_payload_returns_result_invalid() -> None:
         dry_run=True,
     )
     assert result.success is False
-    assert result.error_code == LarkCliErrorCode.RESULT_INVALID
+    assert result.error_code == int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
     assert result.payload["steps"] == []
-    assert result.payload["error"]["code"] == LarkCliErrorCode.RESULT_INVALID.value
+    assert result.payload["error"]["code"] == int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
+    assert result.payload["error"]["name"] == "result_invalid"
 
 
 def test_execute_non_zero_exit_maps_error_code(monkeypatch) -> None:
@@ -194,13 +196,14 @@ def test_execute_non_zero_exit_maps_error_code(monkeypatch) -> None:
         dry_run=True,
     )
     assert result.success is False
-    assert result.error_code == LarkCliErrorCode.PERMISSION_DENIED
+    assert result.error_code == int(UnifiedErrorCode.PERMISSION_DENIED)
     assert len(result.payload["steps"]) == 1
-    assert result.payload["error"]["code"] == LarkCliErrorCode.PERMISSION_DENIED.value
+    assert result.payload["error"]["code"] == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert result.payload["error"]["name"] == "permission_denied"
     assert "permission denied" in result.payload["error"]["detail"]["last_error"]
 
 
-def test_execute_timeout_returns_rate_limit(monkeypatch) -> None:
+def test_execute_timeout_returns_timeout(monkeypatch) -> None:
     service = LarkCliService()
     service.settings.lark_cli_timeout_seconds = 1
 
@@ -214,6 +217,7 @@ def test_execute_timeout_returns_rate_limit(monkeypatch) -> None:
         dry_run=True,
     )
     assert result.success is False
-    assert result.error_code == LarkCliErrorCode.RATE_LIMIT
-    assert result.payload["error"]["code"] == LarkCliErrorCode.RATE_LIMIT.value
+    assert result.error_code == int(UnifiedErrorCode.TIMEOUT)
+    assert result.payload["error"]["code"] == int(UnifiedErrorCode.TIMEOUT)
+    assert result.payload["error"]["name"] == "operation_timeout"
     assert result.payload["error"]["detail"]["timeout"] == 1

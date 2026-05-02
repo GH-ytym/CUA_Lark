@@ -40,6 +40,8 @@ class IntentDecision(ParsePreviewResponse):
     parse_source: str = "qwen"
     missing_fields: list[str] = Field(default_factory=list)
     standard_action: StandardAction = Field(default_factory=StandardAction)
+    planned_actions: list[StandardAction] = Field(default_factory=list)
+    task_clauses: list[str] = Field(default_factory=list)
     structured_command: dict[str, Any] = Field(default_factory=dict)
     raw_llm_payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -59,7 +61,7 @@ class IntentService:
                 parse_source="llm_unavailable",
             )
 
-        decision = await self._parse_with_llm(message=message, context_hint=context_hint)
+        decision = await self._parse_request_plan_with_llm(message=message, context_hint=context_hint)
         if decision is not None:
             return decision
 
@@ -70,12 +72,16 @@ class IntentService:
         )
 
     async def _parse_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
-        """Call Qwen and normalize its structured output."""
+        """Backward-compatible alias for the planner parse path."""
+        return await self._parse_request_plan_with_llm(message=message, context_hint=context_hint)
+
+    async def _parse_request_plan_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
+        """Ask the model to plan the full request, including ordered multi-task output."""
         raw_payload, llm_error = await self._request_llm_json(
-            system_prompt=self._intent_prompt(),
+            system_prompt=self._task_plan_prompt(),
             user_payload={"message": message, "context_hint": context_hint},
-            max_tokens=512,
-            contract_hint=self._intent_contract_hint(),
+            max_tokens=1024,
+            contract_hint=self._task_plan_contract_hint(),
             allow_repair=True,
             allow_retry=True,
             timeout_seconds=max(1, int(self.settings.qwen_intent_timeout_seconds)),
@@ -83,7 +89,7 @@ class IntentService:
         if raw_payload is None:
             return None if llm_error else self._build_unknown_decision(reason="invalid llm output", parse_source="qwen_invalid")
 
-        normalized = self._normalize_intent_payload(raw_payload)
+        normalized = self._normalize_request_plan_payload(data=raw_payload, original_message=message)
         if normalized is None:
             return self._build_unknown_decision(
                 reason="invalid llm contract",
@@ -91,35 +97,58 @@ class IntentService:
                 raw_llm_payload=raw_payload,
             )
 
-        capability_id = self._resolve_capability_id(normalized)
-        if capability_id == CapabilityId.UNKNOWN:
+        entries = normalized["tasks"]
+        decisions: list[IntentDecision] = []
+        clauses: list[str] = []
+        for entry in entries:
+            decision = await self._build_decision_from_normalized(
+                normalized=entry["normalized"],
+                raw_llm_payload=entry["raw_llm_payload"],
+                raw_message=entry["raw_message"],
+                parse_source="qwen_plan",
+            )
+            decisions.append(decision)
+            clauses.append(entry["raw_message"])
+
+        executable_actions = [item.standard_action for item in decisions if item.standard_action.capability_id != CapabilityId.UNKNOWN]
+        if not executable_actions:
             return self._build_unknown_decision(
-                reason=str(normalized.get("reason", "unknown capability")).strip() or "unknown capability",
-                parse_source="qwen",
-                action_plan=self._normalize_plan(normalized.get("action_plan")),
+                reason=str(normalized["reason"]).strip() or "no executable action found in request plan",
+                parse_source="qwen_plan",
+                action_plan=list(normalized["action_plan"]),
                 raw_llm_payload=raw_payload,
             )
 
-        payload_raw = normalized.get("payload")
-        payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
-        payload = self._finalize_llm_payload(capability_id=capability_id, payload=payload)
-        payload = await self._resolve_recipient_if_needed(capability_id=capability_id, payload=payload)
+        if len(decisions) == 1:
+            decision = decisions[0]
+            return decision.model_copy(
+                update={
+                    "parse_source": "qwen_plan",
+                    "raw_llm_payload": dict(raw_payload),
+                    "task_clauses": clauses,
+                }
+            )
 
-        missing_fields = self._merge_missing_fields(
-            self._normalize_missing_fields(normalized.get("missing_fields")),
-            self._execution_missing_fields(capability_id=capability_id, payload=payload),
-        )
-        structured_command = self._build_structured_command(capability_id=capability_id, payload=payload)
-        intent = self._intent_for_capability(capability_id)
+        missing_fields = self._merge_missing_fields(*(item.missing_fields for item in decisions))
+        selected_executor = ExecutorType.CLI if any(
+            item.selected_executor == ExecutorType.CLI for item in decisions
+        ) else ExecutorType.NONE
+        action_plan = list(normalized["action_plan"]) or [
+            f"任务{index}: {clause[:40]}"
+            for index, clause in enumerate(clauses, start=1)
+        ][:4]
+        structured_command = self._build_multi_structured_command(clauses=clauses, decisions=decisions)
 
         return IntentDecision(
-            intent_type=intent,
-            reason=str(normalized.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
-            action_plan=self._normalize_plan(normalized.get("action_plan")),
-            selected_executor=self._executor_for(capability_id),
-            parse_source="qwen",
+            intent_type=IntentType.MULTI_TASK,
+            reason=f"planned {len(executable_actions)} ordered tasks from one request",
+            action_plan=action_plan,
+            selected_executor=selected_executor,
+            parse_source="qwen_multi_plan",
             missing_fields=missing_fields,
-            standard_action=self._build_standard_action(capability_id=capability_id, payload=payload),
+            standard_action=executable_actions[0],
+            planned_actions=[item.standard_action for item in decisions],
+            task_clauses=clauses,
             structured_command=structured_command,
             raw_llm_payload=dict(raw_payload),
         )
@@ -227,11 +256,11 @@ class IntentService:
         if not isinstance(data, dict):
             return None
 
-        payload_raw = data.get("payload", data.get("entities", {}))
+        payload_raw = self._pick_first(data, "payload", "p", "entities")
         payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
-        capability_value = str(data.get("capability_id", "")).strip()
+        capability_value = str(self._pick_first(data, "capability_id", "c", default="")).strip()
         if not capability_value:
-            capability_value = str(data.get("intent_type", "")).strip()
+            capability_value = str(self._pick_first(data, "intent_type", "i", default="")).strip()
 
         capability_id = self._to_capability_id(capability_value)
         if capability_id == CapabilityId.IM_MESSAGE_SEND:
@@ -240,11 +269,105 @@ class IntentService:
         normalized_payload = normalize_payload(capability_id, payload) if capability_id != CapabilityId.UNKNOWN else payload
         return {
             "capability_id": capability_id.value,
-            "reason": str(data.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
-            "action_plan": self._normalize_plan(data.get("action_plan")),
+            "reason": str(self._pick_first(data, "reason", "r", default="parsed by qwen")).strip()[:200] or "parsed by qwen",
+            "action_plan": self._normalize_plan(self._pick_first(data, "action_plan", "a")),
             "payload": normalized_payload,
-            "missing_fields": self._normalize_missing_fields(data.get("missing_fields")),
+            "missing_fields": self._normalize_missing_fields(self._pick_first(data, "missing_fields", "miss")),
         }
+
+    def _normalize_request_plan_payload(
+        self,
+        data: dict[str, object] | None,
+        original_message: str,
+    ) -> dict[str, object] | None:
+        if not isinstance(data, dict):
+            return None
+
+        tasks_raw = self._pick_first(data, "tasks", "t")
+        if isinstance(tasks_raw, list) and tasks_raw:
+            tasks: list[dict[str, Any]] = []
+            for index, item in enumerate(tasks_raw, start=1):
+                if not isinstance(item, dict):
+                    continue
+                normalized = self._normalize_intent_payload(item)
+                if normalized is None:
+                    return None
+                raw_message = str(self._pick_first(item, "raw_message", "m", default="")).strip() or f"task {index}"
+                tasks.append(
+                    {
+                        "order": index,
+                        "raw_message": raw_message,
+                        "normalized": normalized,
+                        "raw_llm_payload": dict(item),
+                    }
+                )
+            if not tasks:
+                return None
+            return {
+                "intent_type": IntentType.MULTI_TASK.value if len(tasks) > 1 else tasks[0]["normalized"]["capability_id"],
+                "reason": str(self._pick_first(data, "reason", "r", default="planned by qwen")).strip()[:200] or "planned by qwen",
+                "action_plan": self._normalize_plan(self._pick_first(data, "action_plan", "a")),
+                "tasks": tasks,
+            }
+
+        normalized = self._normalize_intent_payload(data)
+        if normalized is None:
+            return None
+        return {
+            "intent_type": normalized["capability_id"],
+            "reason": str(normalized.get("reason", "planned by qwen")).strip()[:200] or "planned by qwen",
+            "action_plan": self._normalize_plan(self._pick_first(data, "action_plan", "a")),
+            "tasks": [
+                {
+                    "order": 1,
+                    "raw_message": original_message.strip() or "task 1",
+                    "normalized": normalized,
+                    "raw_llm_payload": dict(data),
+                }
+            ],
+        }
+
+    async def _build_decision_from_normalized(
+        self,
+        normalized: dict[str, object],
+        raw_llm_payload: dict[str, object],
+        raw_message: str,
+        parse_source: str,
+    ) -> IntentDecision:
+        capability_id = self._resolve_capability_id(normalized)
+        if capability_id == CapabilityId.UNKNOWN:
+            return self._build_unknown_decision(
+                reason=str(normalized.get("reason", "unknown capability")).strip() or "unknown capability",
+                parse_source=parse_source,
+                action_plan=self._normalize_plan(normalized.get("action_plan")),
+                raw_llm_payload=raw_llm_payload,
+            )
+
+        payload_raw = normalized.get("payload")
+        payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
+        payload = self._finalize_llm_payload(capability_id=capability_id, payload=payload)
+        payload = await self._resolve_recipient_if_needed(capability_id=capability_id, payload=payload)
+
+        missing_fields = self._merge_missing_fields(
+            self._normalize_missing_fields(normalized.get("missing_fields")),
+            self._execution_missing_fields(capability_id=capability_id, payload=payload),
+        )
+        structured_command = self._build_structured_command(capability_id=capability_id, payload=payload)
+        action = self._build_standard_action(capability_id=capability_id, payload=payload)
+
+        return IntentDecision(
+            intent_type=self._intent_for_capability(capability_id),
+            reason=str(normalized.get("reason", "parsed by qwen")).strip()[:200] or "parsed by qwen",
+            action_plan=self._normalize_plan(normalized.get("action_plan")),
+            selected_executor=self._executor_for(capability_id),
+            parse_source=parse_source,
+            missing_fields=missing_fields,
+            standard_action=action,
+            planned_actions=[action],
+            task_clauses=[raw_message],
+            structured_command=structured_command,
+            raw_llm_payload=dict(raw_llm_payload),
+        )
 
     @staticmethod
     def _normalize_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -326,16 +449,26 @@ class IntentService:
             parse_source=parse_source,
             missing_fields=[],
             standard_action=self._build_standard_action(capability_id=CapabilityId.UNKNOWN, payload={}),
+            planned_actions=[],
+            task_clauses=[],
             structured_command=structured_command,
             raw_llm_payload=raw_llm_payload or {},
         )
 
     @staticmethod
-    def _intent_prompt() -> str:
+    def _task_plan_prompt() -> str:
         return (
-            "You are the intent parser for a Feishu automation agent. "
+            "You are the task planner and intent parser for a Feishu automation agent. "
+            "Read the full user request and decide whether it contains one task or multiple ordered tasks. "
             "Return exactly one JSON object and nothing else. "
-            "Fields: capability_id, reason, action_plan, payload, missing_fields. "
+            "Use the minimal compact JSON schema for stability. "
+            "Required top-level field: t. "
+            "Required task fields: m, c, p. Optional task field: miss. "
+            "Optional top-level fields: r, a. Optional task fields: r, a. "
+            "t must be an ordered array. Each task object means: m=raw_message, c=capability_id, p=payload, miss=missing_fields. "
+            "Long field names are allowed for compatibility, but always prefer the compact keys. "
+            "Do not rely on punctuation alone. Infer task boundaries from semantics, ordering words, and dependencies. "
+            "If the user gives 3-4 actions in one sentence, keep all of them in order inside tasks. "
             "Never invent chat_id, user_id, message_id, thread_id, spreadsheet_token, doc token, or any opaque identifier. "
             "Leave unknown strings empty and unknown arrays empty. "
             "capability_id must be one of: "
@@ -368,15 +501,18 @@ class IntentService:
             "When the user asks to search or list messages in one chat, keep that chat name in payload.chat_hint. "
             "Do not drop recipient names from payload.chat_hint just because the id is unknown. "
             "For task.create, keep the core task wording in payload.title; if there is a deadline, copy it into due_time but do not over-shorten title. "
-            "Example: for '创建任务：今晚提交周报，截止明天中午12点', set payload.title to '今晚提交周报' and payload.due_time to '明天中午12点'."
+            "Keep each raw_message as a short natural-language clause that corresponds to one task and preserves the user's intended order."
         )
 
     @staticmethod
-    def _intent_contract_hint() -> str:
+    def _task_plan_contract_hint() -> str:
         return (
-            '{"capability_id":"im.message_send","reason":"...","action_plan":["..."],'
-            '"payload":{"chat_hint":"","chat_id":"","user_id":"","text":"","identity":"user"},'
-            '"missing_fields":["chat_hint"]}'
+            '{"t":['
+            '{"m":"先给项目群发消息：今晚九点发布","c":"im.message_send",'
+            '"p":{"chat_hint":"项目群","chat_id":"","user_id":"","text":"今晚九点发布","identity":"user"},"miss":[]},'
+            '{"m":"然后创建文档，标题叫发布复盘","c":"docs.create",'
+            '"p":{"title":"发布复盘","content":"","folder_token":""},"miss":[]}'
+            ']}'
         )
 
     @staticmethod
@@ -490,6 +626,13 @@ class IntentService:
         return merged
 
     @staticmethod
+    def _pick_first(data: dict[str, object], *keys: str, default: object = None) -> object:
+        for key in keys:
+            if key in data:
+                return data[key]
+        return default
+
+    @staticmethod
     def _safe_json_loads(content: str) -> dict[str, object] | None:
         text = content.strip()
         if text.startswith("```"):
@@ -515,6 +658,29 @@ class IntentService:
             "payload": normalize_payload(capability_id, dict(payload)),
         }
 
+    def _build_multi_structured_command(
+        self,
+        clauses: list[str],
+        decisions: list[IntentDecision],
+    ) -> dict[str, Any]:
+        tasks: list[dict[str, Any]] = []
+        for index, (clause, decision) in enumerate(zip(clauses, decisions, strict=False), start=1):
+            action = decision.standard_action
+            tasks.append(
+                {
+                    "order": index,
+                    "raw_message": clause,
+                    "intent_type": action.intent_type.value,
+                    "capability_id": action.capability_id.value,
+                    "payload": dict(action.payload),
+                    "missing_fields": list(decision.missing_fields),
+                }
+            )
+        return {
+            "intent_type": IntentType.MULTI_TASK.value,
+            "tasks": tasks,
+        }
+
     def _build_standard_action(self, capability_id: CapabilityId, payload: dict[str, object]) -> StandardAction:
         intent = self._intent_for_capability(capability_id)
         return StandardAction(
@@ -523,3 +689,4 @@ class IntentService:
             executor_hint=self._executor_for(capability_id),
             intent_type=intent,
         )
+
