@@ -23,6 +23,18 @@
 3. 启动后端：`.\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --app-dir .\\backend`
 4. 启动前端：`npm run dev --prefix .\\frontend`
 
+## LLM 配置
+
+后端意图解析统一使用阿里云百炼 Qwen OpenAI-compatible 接口。默认模型为 `qwen3.6-plus`，默认北京地域地址为 `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions`。
+
+在本地 `.env` 中配置：
+
+```env
+DASHSCOPE_API_KEY=
+QWEN_CHAT_URL=https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+QWEN_MODEL=qwen3.6-plus
+```
+
 ## 当前状态
 
 - 目录结构与环境脚本已就绪

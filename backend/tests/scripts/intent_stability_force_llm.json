@@ -1,0 +1,417 @@
+{
+  "runtime_config": {
+    "parse_mode": "force_llm",
+    "intent_message_fastpath_enabled": false,
+    "intent_require_llm": true,
+    "recipient_resolver_use_llm": false,
+    "minimax_configured": true,
+    "minimax_model": "MiniMax-M2.5"
+  },
+  "messages": [
+    "你帮我给那位同学说下，那个东西搞一下，越快越好。",
+    "发消息给 cua lark 4：上线窗口顺延30分钟。",
+    "呃那个你看着办，跟他们讲一下刚才那个变更，别太正式。",
+    "帮我跟刘海俊说，明早10点开评审会。",
+    "给刘海陖发个消息：明天要带电脑。",
+    "给梅家济发送：今晚9点前提交日报。",
+    "给梅家济说hello",
+    "请在CUA-Lark-4里发：CI 已恢复，可以继续合并。"
+  ],
+  "runs": 16,
+  "message_send_count": 13,
+  "message_send_rate": 0.8125,
+  "resolved_target_count": 10,
+  "resolved_target_rate": 0.625,
+  "parse_source_count": {
+    "minimax": 3,
+    "rules_after_llm": 10,
+    "timeout_cancelled": 3
+  },
+  "resolution_status_count": {
+    "resolved": 10,
+    "needs_confirmation": 3,
+    "timeout": 3
+  },
+  "per_message": {
+    "给梅家济发送：今晚9点前提交日报。": {
+      "runs": 2,
+      "message_send_count": 2,
+      "resolved_target_count": 2,
+      "resolution_resolved_count": 2,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "请在CUA-Lark-4里发：CI 已恢复，可以继续合并。": {
+      "runs": 2,
+      "message_send_count": 2,
+      "resolved_target_count": 2,
+      "resolution_resolved_count": 2,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "帮我跟刘海俊说，明早10点开评审会。": {
+      "runs": 2,
+      "message_send_count": 2,
+      "resolved_target_count": 2,
+      "resolution_resolved_count": 2,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "给刘海陖发个消息：明天要带电脑。": {
+      "runs": 2,
+      "message_send_count": 2,
+      "resolved_target_count": 2,
+      "resolution_resolved_count": 2,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "给梅家济说hello": {
+      "runs": 2,
+      "message_send_count": 2,
+      "resolved_target_count": 2,
+      "resolution_resolved_count": 2,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "发消息给 cua lark 4：上线窗口顺延30分钟。": {
+      "runs": 2,
+      "message_send_count": 1,
+      "resolved_target_count": 0,
+      "resolution_needs_confirmation_count": 1,
+      "resolution_timeout_count": 1,
+      "message_send_rate": 0.5,
+      "resolved_target_rate": 0.0
+    },
+    "你帮我给那位同学说下，那个东西搞一下，越快越好。": {
+      "runs": 2,
+      "message_send_count": 2,
+      "resolved_target_count": 0,
+      "resolution_needs_confirmation_count": 2,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 0.0
+    },
+    "呃那个你看着办，跟他们讲一下刚才那个变更，别太正式。": {
+      "runs": 2,
+      "message_send_count": 0,
+      "resolved_target_count": 0,
+      "resolution_timeout_count": 2,
+      "message_send_rate": 0.0,
+      "resolved_target_rate": 0.0
+    }
+  },
+  "updated_at": "2026-04-29T00:47:49.147558+00:00",
+  "results": [
+    {
+      "run": 1,
+      "message": "给梅家济发送：今晚9点前提交日报。",
+      "elapsed_ms": 7793.12,
+      "parse_source": "minimax",
+      "intent_type": "message_send",
+      "reason": "用户希望给梅家济发送一条关于提交日报提醒的消息",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "今晚9点前提交日报",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 2,
+      "message": "请在CUA-Lark-4里发：CI 已恢复，可以继续合并。",
+      "elapsed_ms": 19814.61,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "CI 已恢复，可以继续合并",
+        "resolved_name": "CUA-Lark-4",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 3,
+      "message": "帮我跟刘海俊说，明早10点开评审会。",
+      "elapsed_ms": 11284.31,
+      "parse_source": "minimax",
+      "intent_type": "message_send",
+      "reason": "口语表达命中消息发送语义",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "明早10点开评审会",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 4,
+      "message": "给刘海陖发个消息：明天要带电脑。",
+      "elapsed_ms": 13378.56,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: timeout",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海陖",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "个消息：明天要带电脑",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 5,
+      "message": "给梅家济说hello",
+      "elapsed_ms": 18198.55,
+      "parse_source": "minimax",
+      "intent_type": "message_send",
+      "reason": "口语表达命中消息发送语义",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 6,
+      "message": "发消息给 cua lark 4：上线窗口顺延30分钟。",
+      "elapsed_ms": 13303.09,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: timeout",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "",
+        "chat_id": "",
+        "user_id": "",
+        "text": "消息给 cua lark 4：上线窗口顺延30分钟",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "missing_hint",
+        "resolution_candidates": []
+      }
+    },
+    {
+      "run": 7,
+      "message": "你帮我给那位同学说下，那个东西搞一下，越快越好。",
+      "elapsed_ms": 24056.48,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "那位同学",
+        "chat_id": "",
+        "user_id": "",
+        "text": "下，那个东西搞一下，越快越好",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "师学敏",
+            "entity_type": "contact",
+            "entity_id": "ou_cde731138b8b8e03a2e2637381c8e810",
+            "score": 0.2857
+          },
+          {
+            "name": "鲁同轩",
+            "entity_type": "contact",
+            "entity_id": "ou_3fc94a7f3939f1d870b3dbbf40fa06e7",
+            "score": 0.2857
+          },
+          {
+            "name": "刘同骥",
+            "entity_type": "contact",
+            "entity_id": "ou_886eacfb75780456fba6feddd6bfbcc1",
+            "score": 0.2857
+          }
+        ]
+      }
+    },
+    {
+      "run": 8,
+      "message": "呃那个你看着办，跟他们讲一下刚才那个变更，别太正式。",
+      "elapsed_ms": 25000.0,
+      "parse_source": "timeout_cancelled",
+      "intent_type": "unknown",
+      "reason": "single run cancelled after timeout boundary: 25.0s",
+      "resolution_status": "timeout",
+      "payload": {}
+    },
+    {
+      "run": 9,
+      "message": "给梅家济发送：今晚9点前提交日报。",
+      "elapsed_ms": 22014.42,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "今晚9点前提交日报",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 10,
+      "message": "请在CUA-Lark-4里发：CI 已恢复，可以继续合并。",
+      "elapsed_ms": 21875.71,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "CI 已恢复，可以继续合并",
+        "resolved_name": "CUA-Lark-4",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 11,
+      "message": "帮我跟刘海俊说，明早10点开评审会。",
+      "elapsed_ms": 21286.18,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "明早10点开评审会",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 12,
+      "message": "给刘海陖发个消息：明天要带电脑。",
+      "elapsed_ms": 24377.2,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海陖",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "个消息：明天要带电脑",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 13,
+      "message": "给梅家济说hello",
+      "elapsed_ms": 17435.5,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: invalid_json_retry",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 14,
+      "message": "发消息给 cua lark 4：上线窗口顺延30分钟。",
+      "elapsed_ms": 25000.0,
+      "parse_source": "timeout_cancelled",
+      "intent_type": "unknown",
+      "reason": "single run cancelled after timeout boundary: 25.0s",
+      "resolution_status": "timeout",
+      "payload": {}
+    },
+    {
+      "run": 15,
+      "message": "你帮我给那位同学说下，那个东西搞一下，越快越好。",
+      "elapsed_ms": 13356.29,
+      "parse_source": "rules_after_llm",
+      "intent_type": "message_send",
+      "reason": "llm_failed: timeout",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "那位同学",
+        "chat_id": "",
+        "user_id": "",
+        "text": "下，那个东西搞一下，越快越好",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "师学敏",
+            "entity_type": "contact",
+            "entity_id": "ou_cde731138b8b8e03a2e2637381c8e810",
+            "score": 0.2857
+          },
+          {
+            "name": "鲁同轩",
+            "entity_type": "contact",
+            "entity_id": "ou_3fc94a7f3939f1d870b3dbbf40fa06e7",
+            "score": 0.2857
+          },
+          {
+            "name": "刘同骥",
+            "entity_type": "contact",
+            "entity_id": "ou_886eacfb75780456fba6feddd6bfbcc1",
+            "score": 0.2857
+          }
+        ]
+      }
+    },
+    {
+      "run": 16,
+      "message": "呃那个你看着办，跟他们讲一下刚才那个变更，别太正式。",
+      "elapsed_ms": 25000.0,
+      "parse_source": "timeout_cancelled",
+      "intent_type": "unknown",
+      "reason": "single run cancelled after timeout boundary: 25.0s",
+      "resolution_status": "timeout",
+      "payload": {}
+    }
+  ]
+}

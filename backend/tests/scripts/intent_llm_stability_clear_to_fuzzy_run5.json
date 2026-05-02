@@ -1,0 +1,1466 @@
+{
+  "messages": [
+    "你看着办，给合适的人发一下",
+    "发消息给CUA-Lark-4：今晚9点发布",
+    "发消息给CUA-Lrak-4：今晩9点发布",
+    "在项木群里发：CI巳恢复",
+    "在项目群里发：CI 已恢复",
+    "帮我跟他们打个招呼，内容你懂的",
+    "把那个事情安排一下，别忘了通知相关同学",
+    "请给刘海俊说今天晚点到",
+    "请给刘海陖说今夭晚点到",
+    "跟梅家济说hello",
+    "跟梅家濟说helo",
+    "那个谁在群里说一声今天可能晚点哈"
+  ],
+  "runs": 56,
+  "message_send_count": 48,
+  "message_send_rate": 0.8571,
+  "resolved_target_count": 29,
+  "resolved_target_rate": 0.5179,
+  "parse_source_count": {
+    "rules_fastpath": 48,
+    "rules": 7,
+    "minimax": 1
+  },
+  "resolution_status_count": {
+    "resolved": 29,
+    "needs_confirmation": 19,
+    "unknown": 8
+  },
+  "per_message": {
+    "跟梅家济说hello": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 5,
+      "resolution_resolved_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "发消息给CUA-Lark-4：今晚9点发布": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 5,
+      "resolution_resolved_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "请给刘海俊说今天晚点到": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 5,
+      "resolution_resolved_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "在项目群里发：CI 已恢复": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 0,
+      "resolution_needs_confirmation_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 0.0
+    },
+    "跟梅家濟说helo": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 5,
+      "resolution_resolved_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "发消息给CUA-Lrak-4：今晩9点发布": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 0,
+      "resolution_needs_confirmation_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 0.0
+    },
+    "请给刘海陖说今夭晚点到": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 5,
+      "resolution_resolved_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "在项木群里发：CI巳恢复": {
+      "runs": 5,
+      "message_send_count": 5,
+      "resolved_target_count": 0,
+      "resolution_needs_confirmation_count": 5,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 0.0
+    },
+    "帮我跟他们打个招呼，内容你懂的": {
+      "runs": 4,
+      "message_send_count": 0,
+      "resolved_target_count": 0,
+      "resolution_unknown_count": 4,
+      "message_send_rate": 0.0,
+      "resolved_target_rate": 0.0
+    },
+    "把那个事情安排一下，别忘了通知相关同学": {
+      "runs": 4,
+      "message_send_count": 0,
+      "resolved_target_count": 0,
+      "resolution_unknown_count": 4,
+      "message_send_rate": 0.0,
+      "resolved_target_rate": 0.0
+    },
+    "你看着办，给合适的人发一下": {
+      "runs": 4,
+      "message_send_count": 4,
+      "resolved_target_count": 0,
+      "resolution_needs_confirmation_count": 4,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 0.0
+    },
+    "那个谁在群里说一声今天可能晚点哈": {
+      "runs": 4,
+      "message_send_count": 4,
+      "resolved_target_count": 4,
+      "resolution_resolved_count": 4,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    }
+  },
+  "updated_at": "2026-04-28T06:58:04.186208+00:00",
+  "results": [
+    {
+      "run": 1,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 2.23,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 2,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.42,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 3,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.2,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 4,
+      "message": "在项目群里发：CI 已恢复",
+      "elapsed_ms": 5369.3,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项目群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI 已恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          },
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 5,
+      "message": "跟梅家濟说helo",
+      "elapsed_ms": 2.3,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家濟",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "helo",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 6,
+      "message": "发消息给CUA-Lrak-4：今晩9点发布",
+      "elapsed_ms": 5340.83,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "CUA-Lrak-4",
+        "chat_id": "",
+        "user_id": "",
+        "text": "今晩9点发布",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "Shuran Yan",
+            "entity_type": "contact",
+            "entity_id": "ou_a1d4641bd4be0105d5ae7d9570488e77",
+            "score": 0.3158
+          },
+          {
+            "name": "sunsky",
+            "entity_type": "contact",
+            "entity_id": "ou_8bfdc5569082312da46a3270ead329ae",
+            "score": 0.25
+          },
+          {
+            "name": "Swigar",
+            "entity_type": "contact",
+            "entity_id": "ou_4d409332ee23450ae6553e93ff8bf8d6",
+            "score": 0.25
+          }
+        ]
+      }
+    },
+    {
+      "run": 7,
+      "message": "请给刘海陖说今夭晚点到",
+      "elapsed_ms": 2.23,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海陖",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今夭晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 8,
+      "message": "在项木群里发：CI巳恢复",
+      "elapsed_ms": 4507.2,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项木群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI巳恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "木鱼",
+            "entity_type": "contact",
+            "entity_id": "ou_90755ba517a8d9ec1573b711aa7fb959",
+            "score": 0.4
+          },
+          {
+            "name": "木枫凯",
+            "entity_type": "contact",
+            "entity_id": "ou_96d6b6bd9c93d60df3130ae7ac911350",
+            "score": 0.3333
+          },
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          }
+        ]
+      }
+    },
+    {
+      "run": 9,
+      "message": "帮我跟他们打个招呼，内容你懂的",
+      "elapsed_ms": 12637.6,
+      "parse_source": "rules",
+      "intent_type": "unknown",
+      "reason": "no mvp pattern matched",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 10,
+      "message": "把那个事情安排一下，别忘了通知相关同学",
+      "elapsed_ms": 16396.76,
+      "parse_source": "rules",
+      "intent_type": "unknown",
+      "reason": "no mvp pattern matched",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 11,
+      "message": "你看着办，给合适的人发一下",
+      "elapsed_ms": 4092.6,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "合适的人",
+        "chat_id": "",
+        "user_id": "",
+        "text": "一下",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          },
+          {
+            "name": "方宇飞",
+            "entity_type": "contact",
+            "entity_id": "ou_83243d8e0ef99cd5f53b60c282ab47c2",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 12,
+      "message": "那个谁在群里说一声今天可能晚点哈",
+      "elapsed_ms": 1.47,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "群",
+        "chat_id": "",
+        "user_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+        "text": "一声今天可能晚点哈",
+        "resolved_name": "寇轶群",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.0
+      }
+    },
+    {
+      "run": 13,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.18,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 14,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.23,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 15,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.27,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 16,
+      "message": "在项目群里发：CI 已恢复",
+      "elapsed_ms": 6449.07,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项目群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI 已恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          },
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 17,
+      "message": "跟梅家濟说helo",
+      "elapsed_ms": 1.55,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家濟",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "helo",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 18,
+      "message": "发消息给CUA-Lrak-4：今晩9点发布",
+      "elapsed_ms": 4785.69,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "CUA-Lrak-4",
+        "chat_id": "",
+        "user_id": "",
+        "text": "今晩9点发布",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "Shuran Yan",
+            "entity_type": "contact",
+            "entity_id": "ou_a1d4641bd4be0105d5ae7d9570488e77",
+            "score": 0.3158
+          },
+          {
+            "name": "sunsky",
+            "entity_type": "contact",
+            "entity_id": "ou_8bfdc5569082312da46a3270ead329ae",
+            "score": 0.25
+          },
+          {
+            "name": "Swigar",
+            "entity_type": "contact",
+            "entity_id": "ou_4d409332ee23450ae6553e93ff8bf8d6",
+            "score": 0.25
+          }
+        ]
+      }
+    },
+    {
+      "run": 19,
+      "message": "请给刘海陖说今夭晚点到",
+      "elapsed_ms": 1.27,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海陖",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今夭晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 20,
+      "message": "在项木群里发：CI巳恢复",
+      "elapsed_ms": 4279.94,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项木群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI巳恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "木鱼",
+            "entity_type": "contact",
+            "entity_id": "ou_90755ba517a8d9ec1573b711aa7fb959",
+            "score": 0.4
+          },
+          {
+            "name": "木枫凯",
+            "entity_type": "contact",
+            "entity_id": "ou_96d6b6bd9c93d60df3130ae7ac911350",
+            "score": 0.3333
+          },
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          }
+        ]
+      }
+    },
+    {
+      "run": 21,
+      "message": "帮我跟他们打个招呼，内容你懂的",
+      "elapsed_ms": 7742.08,
+      "parse_source": "minimax",
+      "intent_type": "unknown",
+      "reason": "...",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 22,
+      "message": "把那个事情安排一下，别忘了通知相关同学",
+      "elapsed_ms": 12036.99,
+      "parse_source": "rules",
+      "intent_type": "unknown",
+      "reason": "no mvp pattern matched",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 23,
+      "message": "你看着办，给合适的人发一下",
+      "elapsed_ms": 4672.72,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "合适的人",
+        "chat_id": "",
+        "user_id": "",
+        "text": "一下",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          },
+          {
+            "name": "方宇飞",
+            "entity_type": "contact",
+            "entity_id": "ou_83243d8e0ef99cd5f53b60c282ab47c2",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 24,
+      "message": "那个谁在群里说一声今天可能晚点哈",
+      "elapsed_ms": 1.35,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "群",
+        "chat_id": "",
+        "user_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+        "text": "一声今天可能晚点哈",
+        "resolved_name": "寇轶群",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.0
+      }
+    },
+    {
+      "run": 25,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 2.33,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 26,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.76,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 27,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.11,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 28,
+      "message": "在项目群里发：CI 已恢复",
+      "elapsed_ms": 5356.22,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项目群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI 已恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          },
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 29,
+      "message": "跟梅家濟说helo",
+      "elapsed_ms": 1.34,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家濟",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "helo",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 30,
+      "message": "发消息给CUA-Lrak-4：今晩9点发布",
+      "elapsed_ms": 4071.33,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "CUA-Lrak-4",
+        "chat_id": "",
+        "user_id": "",
+        "text": "今晩9点发布",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "Shuran Yan",
+            "entity_type": "contact",
+            "entity_id": "ou_a1d4641bd4be0105d5ae7d9570488e77",
+            "score": 0.3158
+          },
+          {
+            "name": "sunsky",
+            "entity_type": "contact",
+            "entity_id": "ou_8bfdc5569082312da46a3270ead329ae",
+            "score": 0.25
+          },
+          {
+            "name": "Swigar",
+            "entity_type": "contact",
+            "entity_id": "ou_4d409332ee23450ae6553e93ff8bf8d6",
+            "score": 0.25
+          }
+        ]
+      }
+    },
+    {
+      "run": 31,
+      "message": "请给刘海陖说今夭晚点到",
+      "elapsed_ms": 2.66,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海陖",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今夭晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 32,
+      "message": "在项木群里发：CI巳恢复",
+      "elapsed_ms": 4092.5,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项木群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI巳恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "木鱼",
+            "entity_type": "contact",
+            "entity_id": "ou_90755ba517a8d9ec1573b711aa7fb959",
+            "score": 0.4
+          },
+          {
+            "name": "木枫凯",
+            "entity_type": "contact",
+            "entity_id": "ou_96d6b6bd9c93d60df3130ae7ac911350",
+            "score": 0.3333
+          },
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          }
+        ]
+      }
+    },
+    {
+      "run": 33,
+      "message": "帮我跟他们打个招呼，内容你懂的",
+      "elapsed_ms": 12385.56,
+      "parse_source": "rules",
+      "intent_type": "unknown",
+      "reason": "no mvp pattern matched",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 34,
+      "message": "把那个事情安排一下，别忘了通知相关同学",
+      "elapsed_ms": 16676.81,
+      "parse_source": "rules",
+      "intent_type": "unknown",
+      "reason": "no mvp pattern matched",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 35,
+      "message": "你看着办，给合适的人发一下",
+      "elapsed_ms": 4766.12,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "合适的人",
+        "chat_id": "",
+        "user_id": "",
+        "text": "一下",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          },
+          {
+            "name": "方宇飞",
+            "entity_type": "contact",
+            "entity_id": "ou_83243d8e0ef99cd5f53b60c282ab47c2",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 36,
+      "message": "那个谁在群里说一声今天可能晚点哈",
+      "elapsed_ms": 1.33,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "群",
+        "chat_id": "",
+        "user_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+        "text": "一声今天可能晚点哈",
+        "resolved_name": "寇轶群",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.0
+      }
+    },
+    {
+      "run": 37,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.15,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 38,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.15,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 39,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.12,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 40,
+      "message": "在项目群里发：CI 已恢复",
+      "elapsed_ms": 4126.47,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项目群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI 已恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          },
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 41,
+      "message": "跟梅家濟说helo",
+      "elapsed_ms": 2.04,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家濟",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "helo",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 42,
+      "message": "发消息给CUA-Lrak-4：今晩9点发布",
+      "elapsed_ms": 6323.75,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "CUA-Lrak-4",
+        "chat_id": "",
+        "user_id": "",
+        "text": "今晩9点发布",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "Shuran Yan",
+            "entity_type": "contact",
+            "entity_id": "ou_a1d4641bd4be0105d5ae7d9570488e77",
+            "score": 0.3158
+          },
+          {
+            "name": "sunsky",
+            "entity_type": "contact",
+            "entity_id": "ou_8bfdc5569082312da46a3270ead329ae",
+            "score": 0.25
+          },
+          {
+            "name": "Swigar",
+            "entity_type": "contact",
+            "entity_id": "ou_4d409332ee23450ae6553e93ff8bf8d6",
+            "score": 0.25
+          }
+        ]
+      }
+    },
+    {
+      "run": 43,
+      "message": "请给刘海陖说今夭晚点到",
+      "elapsed_ms": 2.31,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海陖",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今夭晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 44,
+      "message": "在项木群里发：CI巳恢复",
+      "elapsed_ms": 4773.45,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项木群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI巳恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "木鱼",
+            "entity_type": "contact",
+            "entity_id": "ou_90755ba517a8d9ec1573b711aa7fb959",
+            "score": 0.4
+          },
+          {
+            "name": "木枫凯",
+            "entity_type": "contact",
+            "entity_id": "ou_96d6b6bd9c93d60df3130ae7ac911350",
+            "score": 0.3333
+          },
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          }
+        ]
+      }
+    },
+    {
+      "run": 45,
+      "message": "帮我跟他们打个招呼，内容你懂的",
+      "elapsed_ms": 11530.38,
+      "parse_source": "rules",
+      "intent_type": "unknown",
+      "reason": "no mvp pattern matched",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 46,
+      "message": "把那个事情安排一下，别忘了通知相关同学",
+      "elapsed_ms": 19350.77,
+      "parse_source": "rules",
+      "intent_type": "unknown",
+      "reason": "no mvp pattern matched",
+      "resolution_status": "unknown",
+      "payload": {}
+    },
+    {
+      "run": 47,
+      "message": "你看着办，给合适的人发一下",
+      "elapsed_ms": 3972.7,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "合适的人",
+        "chat_id": "",
+        "user_id": "",
+        "text": "一下",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          },
+          {
+            "name": "方宇飞",
+            "entity_type": "contact",
+            "entity_id": "ou_83243d8e0ef99cd5f53b60c282ab47c2",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 48,
+      "message": "那个谁在群里说一声今天可能晚点哈",
+      "elapsed_ms": 3.01,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "群",
+        "chat_id": "",
+        "user_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+        "text": "一声今天可能晚点哈",
+        "resolved_name": "寇轶群",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.0
+      }
+    },
+    {
+      "run": 49,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.88,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 50,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.22,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 51,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.1,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 52,
+      "message": "在项目群里发：CI 已恢复",
+      "elapsed_ms": 5382.07,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项目群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI 已恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          },
+          {
+            "name": "梅家济",
+            "entity_type": "contact",
+            "entity_id": "ou_2c273d74c8c50975348694bc69f34678",
+            "score": 0.0
+          },
+          {
+            "name": "刘海俊",
+            "entity_type": "contact",
+            "entity_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+            "score": 0.0
+          }
+        ]
+      }
+    },
+    {
+      "run": 53,
+      "message": "跟梅家濟说helo",
+      "elapsed_ms": 1.29,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "梅家濟",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "helo",
+        "resolved_name": "梅家济",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 54,
+      "message": "发消息给CUA-Lrak-4：今晩9点发布",
+      "elapsed_ms": 3561.95,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "CUA-Lrak-4",
+        "chat_id": "",
+        "user_id": "",
+        "text": "今晩9点发布",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "Shuran Yan",
+            "entity_type": "contact",
+            "entity_id": "ou_a1d4641bd4be0105d5ae7d9570488e77",
+            "score": 0.3158
+          },
+          {
+            "name": "sunsky",
+            "entity_type": "contact",
+            "entity_id": "ou_8bfdc5569082312da46a3270ead329ae",
+            "score": 0.25
+          },
+          {
+            "name": "Swigar",
+            "entity_type": "contact",
+            "entity_id": "ou_4d409332ee23450ae6553e93ff8bf8d6",
+            "score": 0.25
+          }
+        ]
+      }
+    },
+    {
+      "run": 55,
+      "message": "请给刘海陖说今夭晚点到",
+      "elapsed_ms": 1.31,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "resolved",
+      "payload": {
+        "chat_hint": "刘海陖",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今夭晚点到",
+        "resolved_name": "刘海俊",
+        "resolution_status": "resolved",
+        "resolution_method": "rules",
+        "resolution_score": 1.8
+      }
+    },
+    {
+      "run": 56,
+      "message": "在项木群里发：CI巳恢复",
+      "elapsed_ms": 4103.67,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "resolution_status": "needs_confirmation",
+      "payload": {
+        "chat_hint": "项木群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "CI巳恢复",
+        "resolution_status": "needs_confirmation",
+        "resolution_reason": "ambiguous_or_low_confidence",
+        "resolution_candidates": [
+          {
+            "name": "木鱼",
+            "entity_type": "contact",
+            "entity_id": "ou_90755ba517a8d9ec1573b711aa7fb959",
+            "score": 0.4
+          },
+          {
+            "name": "木枫凯",
+            "entity_type": "contact",
+            "entity_id": "ou_96d6b6bd9c93d60df3130ae7ac911350",
+            "score": 0.3333
+          },
+          {
+            "name": "寇轶群",
+            "entity_type": "contact",
+            "entity_id": "ou_85d15b2f8a1c3d222c8ebafbb6ae1903",
+            "score": 0.3333
+          }
+        ]
+      }
+    }
+  ]
+}

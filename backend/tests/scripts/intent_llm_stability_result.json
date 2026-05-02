@@ -1,0 +1,938 @@
+{
+  "messages": [
+    "发消息给CUA-Lark-4：今晚9点发布",
+    "请给刘海俊说今天晚点到",
+    "跟梅家济说hello"
+  ],
+  "runs": 60,
+  "message_send_count": 60,
+  "message_send_rate": 1.0,
+  "resolved_target_count": 60,
+  "resolved_target_rate": 1.0,
+  "per_message": {
+    "跟梅家济说hello": {
+      "runs": 20,
+      "message_send_count": 20,
+      "resolved_target_count": 20,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "发消息给CUA-Lark-4：今晚9点发布": {
+      "runs": 20,
+      "message_send_count": 20,
+      "resolved_target_count": 20,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    },
+    "请给刘海俊说今天晚点到": {
+      "runs": 20,
+      "message_send_count": 20,
+      "resolved_target_count": 20,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 1.0
+    }
+  },
+  "updated_at": "2026-04-28T06:39:03.396432+00:00",
+  "results": [
+    {
+      "run": 1,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 2.39,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 2,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.47,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 3,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.05,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 4,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.38,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 5,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.06,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 6,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.08,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 7,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.13,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 8,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.44,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 9,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.39,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 10,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.25,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 11,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.81,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 12,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.4,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 13,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.22,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 14,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.2,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 15,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.27,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 16,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.14,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 17,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.65,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 18,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.2,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 19,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.33,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 20,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.12,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 21,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.01,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 22,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.48,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 23,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.15,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 24,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.09,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 25,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.07,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 26,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.05,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 27,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.97,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 28,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.69,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 29,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.04,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 30,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.22,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 31,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.08,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 32,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.08,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 33,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.15,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 34,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.06,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 35,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.07,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 36,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.42,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 37,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.23,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 38,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.26,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 39,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.91,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 40,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 2.02,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 41,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.27,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 42,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 2.04,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 43,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 2.23,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 44,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.29,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 45,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 2.19,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 46,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.62,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 47,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.73,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 48,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 2.05,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 49,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.81,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 50,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 2.32,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 51,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.75,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 52,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.97,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 53,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.93,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 54,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.95,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 55,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 2.46,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 56,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.26,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 57,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.76,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    },
+    {
+      "run": 58,
+      "message": "跟梅家济说hello",
+      "elapsed_ms": 1.1,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_2c273d74c8c50975348694bc69f34678",
+        "text": "hello",
+        "resolved_name": "梅家济"
+      }
+    },
+    {
+      "run": 59,
+      "message": "发消息给CUA-Lark-4：今晚9点发布",
+      "elapsed_ms": 1.24,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "CUA-Lark-4",
+        "chat_id": "oc_7876d7cdaf5e6a888e44522b83c0470a",
+        "user_id": "",
+        "text": "今晚9点发布",
+        "resolved_name": "CUA-Lark-4"
+      }
+    },
+    {
+      "run": 60,
+      "message": "请给刘海俊说今天晚点到",
+      "elapsed_ms": 1.45,
+      "parse_source": "rules_fastpath",
+      "intent_type": "message_send",
+      "reason": "消息发送快路径命中",
+      "payload": {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_64c6927d31d3c695bd2369fb9136b691",
+        "text": "今天晚点到",
+        "resolved_name": "刘海俊"
+      }
+    }
+  ]
+}

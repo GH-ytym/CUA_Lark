@@ -1,0 +1,70 @@
+{
+  "messages": [
+    "你看着办，给合适的人发一下",
+    "帮我跟他们打个招呼，内容你懂的",
+    "把那个事情安排一下，别忘了通知相关同学"
+  ],
+  "runs": 3,
+  "message_send_count": 1,
+  "message_send_rate": 0.3333,
+  "resolved_target_count": 0,
+  "resolved_target_rate": 0.0,
+  "per_message": {
+    "把那个事情安排一下，别忘了通知相关同学": {
+      "runs": 1,
+      "message_send_count": 0,
+      "resolved_target_count": 0,
+      "message_send_rate": 0.0,
+      "resolved_target_rate": 0.0
+    },
+    "帮我跟他们打个招呼，内容你懂的": {
+      "runs": 1,
+      "message_send_count": 0,
+      "resolved_target_count": 0,
+      "message_send_rate": 0.0,
+      "resolved_target_rate": 0.0
+    },
+    "你看着办，给合适的人发一下": {
+      "runs": 1,
+      "message_send_count": 1,
+      "resolved_target_count": 0,
+      "message_send_rate": 1.0,
+      "resolved_target_rate": 0.0
+    }
+  },
+  "updated_at": "2026-04-28T06:42:38.308197+00:00",
+  "results": [
+    {
+      "run": 1,
+      "message": "把那个事情安排一下，别忘了通知相关同学",
+      "elapsed_ms": 10723.91,
+      "parse_source": "minimax_required",
+      "intent_type": "unknown",
+      "reason": "llm parse failed and rules fallback disabled",
+      "payload": {}
+    },
+    {
+      "run": 2,
+      "message": "帮我跟他们打个招呼，内容你懂的",
+      "elapsed_ms": 12414.74,
+      "parse_source": "minimax_required",
+      "intent_type": "unknown",
+      "reason": "llm parse failed and rules fallback disabled",
+      "payload": {}
+    },
+    {
+      "run": 3,
+      "message": "你看着办，给合适的人发一下",
+      "elapsed_ms": 18311.16,
+      "parse_source": "minimax",
+      "intent_type": "message_send",
+      "reason": "口语表达命中消息发送语义",
+      "payload": {
+        "chat_hint": "合适的人",
+        "chat_id": "",
+        "user_id": "",
+        "text": "一下"
+      }
+    }
+  ]
+}
