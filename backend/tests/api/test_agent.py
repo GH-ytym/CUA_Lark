@@ -164,7 +164,7 @@ def test_execute_runs_cli_when_already_resolved(monkeypatch) -> None:
     assert data["cua_should_trigger"] is False
 
 
-def test_execute_sets_cua_trigger_when_cli_failed(monkeypatch) -> None:
+def test_execute_runs_cua_fallback_when_cli_failed(monkeypatch) -> None:
     async def fake_parse(*_: object, **__: object) -> IntentDecision:
         return IntentDecision(
             intent_type=IntentType.MESSAGE_SEND,
@@ -204,6 +204,20 @@ def test_execute_sets_cua_trigger_when_cli_failed(monkeypatch) -> None:
             },
         ),
     )
+    monkeypatch.setattr(
+        agent.orchestrator_service.cua_service,
+        "execute_fallback",
+        lambda *_, **__: ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={
+                "mode": "cua_fallback",
+                "cua_response": {"success": True, "message": "ok"},
+            },
+        ),
+    )
     client = TestClient(create_app())
     response = client.post(
         "/api/agent/execute",
@@ -217,6 +231,8 @@ def test_execute_sets_cua_trigger_when_cli_failed(monkeypatch) -> None:
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["execution_status"] == "cli_failed"
+    assert data["execution_status"] == "completed"
     assert data["cli_error_code"] == "permission_denied"
     assert data["cua_should_trigger"] is True
+    assert data["execution_summary"] == "cua fallback executed"
+    assert data["execution_payload"]["mode"] == "cua_fallback"

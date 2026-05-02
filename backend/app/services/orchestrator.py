@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
+import sys
 from typing import Any
 
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
 from app.domain.models import OrchestrationTask, StandardAction, TaskStep
 from app.schemas.chat import ExecuteCommandRequest, ExecuteCommandResponse
+from app.services.cua_service import CuaService
 from app.services.intent_service import IntentDecision, IntentService
 from app.services.lark_cli_service import LarkCliService
 
@@ -19,9 +22,11 @@ class OrchestratorService:
         self,
         intent_service: IntentService | None = None,
         cli_service: LarkCliService | None = None,
+        cua_service: CuaService | None = None,
     ) -> None:
         self.intent_service = intent_service or IntentService()
         self.cli_service = cli_service or LarkCliService()
+        self.cua_service = cua_service or CuaService()
         self._tasks: dict[str, OrchestrationTask] = {}
 
     async def execute_command(self, payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
@@ -74,7 +79,11 @@ class OrchestratorService:
             execution_summary = result.summary
             execution_payload = result.payload
             cli_error_code = result.error_code
-            cua_should_trigger = self._should_trigger_cua(cli_error_code)
+            cua_should_trigger = self._should_trigger_cua(
+                cli_error_code,
+                execution_payload=execution_payload,
+                success=result.success,
+            )
             task.status = result.status
             self._record_step(
                 task,
@@ -91,7 +100,6 @@ class OrchestratorService:
             else:
                 execution_summary = f"能力已解析但 CLI 命令尚未接入：{action.capability_id.value}"
                 cli_error_code = LarkCliErrorCode.API_UNSUPPORTED.value
-                cua_should_trigger = True
                 execution_payload = {
                     "error": {
                         "code": cli_error_code,
@@ -99,6 +107,36 @@ class OrchestratorService:
                         "detail": {"capability_id": action.capability_id.value},
                     }
                 }
+                cua_should_trigger = self._should_trigger_cua(
+                    cli_error_code,
+                    execution_payload=execution_payload,
+                    success=False,
+                )
+
+        if cua_should_trigger:
+            task.status = ExecutionStatus.CUA_RUNNING
+            task.updated_at = datetime.now(UTC)
+            self._record_step(
+                task,
+                "cua_started",
+                ExecutionStatus.CUA_RUNNING,
+                "cli failed, switching to cua fallback",
+                {"cli_error_code": cli_error_code},
+            )
+            cua_result = self.cua_service.execute_fallback(
+                action=action,
+                raw_message=payload.message,
+                task_id=task.task_id,
+                cli_error_code=cli_error_code,
+                cli_payload=execution_payload,
+            )
+            task.executor_result = cua_result
+            execution_status = cua_result.status
+            execution_summary = cua_result.summary
+            execution_payload = cua_result.payload
+            task.status = cua_result.status
+            task.updated_at = datetime.now(UTC)
+            self._record_step(task, "cua_finished", cua_result.status, cua_result.summary, cua_result.payload)
 
         task.updated_at = datetime.now(UTC)
         self._tasks[task.task_id] = task
@@ -208,17 +246,41 @@ class OrchestratorService:
         return action.capability_id == CapabilityId.IM_MESSAGE_SEND
 
     @staticmethod
-    def _should_trigger_cua(cli_error_code: str) -> bool:
-        triggerable_codes = {
-            LarkCliErrorCode.RATE_LIMIT.value,
-            LarkCliErrorCode.API_UNSUPPORTED.value,
-            LarkCliErrorCode.PERMISSION_DENIED.value,
-            LarkCliErrorCode.API_ERROR.value,
-            LarkCliErrorCode.RESULT_INVALID.value,
-            LarkCliErrorCode.USER_REQUESTED.value,
-            LarkCliErrorCode.HYBRID_TASK_REQUIRED.value,
+    def _should_trigger_cua(
+        cli_error_code: str,
+        execution_payload: dict[str, object] | None = None,
+        success: bool = False,
+    ) -> bool:
+        evaluator_cls = OrchestratorService._load_trigger_rule_evaluator()
+        cli_result = {
+            "success": success,
+            "error_code": cli_error_code,
+            "data": OrchestratorService._extract_trigger_data(execution_payload or {}),
         }
-        return bool(cli_error_code and cli_error_code in triggerable_codes)
+        if evaluator_cls is not None:
+            return bool(evaluator_cls().should_trigger_cua(cli_result))
+        return bool(cli_error_code and cli_error_code in {item.value for item in LarkCliErrorCode})
+
+    @staticmethod
+    def _extract_trigger_data(execution_payload: dict[str, object]) -> object:
+        if execution_payload.get("error") is not None:
+            return None
+        steps = execution_payload.get("steps")
+        if isinstance(steps, list) and steps:
+            return steps
+        return execution_payload or None
+
+    @staticmethod
+    def _load_trigger_rule_evaluator() -> type[Any] | None:
+        project_root = Path(__file__).resolve().parents[3]
+        project_root_text = str(project_root)
+        if project_root_text not in sys.path:
+            sys.path.append(project_root_text)
+        try:
+            from cua.trigger_rules import TriggerRuleEvaluator
+        except Exception:  # noqa: BLE001
+            return None
+        return TriggerRuleEvaluator
 
     @staticmethod
     def _record_step(
