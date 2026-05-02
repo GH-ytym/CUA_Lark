@@ -35,3 +35,7 @@ docs/
 *.db
 *.sqlite
 *.sqlite3
+
+cua/assets/
+src-cua
+runs

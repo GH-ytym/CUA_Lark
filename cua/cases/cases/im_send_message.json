@@ -1,0 +1,19 @@
+{
+  "task_id": "im_send_001",
+  "task_name": "飞书IM发送消息测试",
+  "module": "im",
+  "intent": "send_message",
+  "params": {
+    "contact_name": "测试联系人",
+    "message_text": "hello_20260417_001"
+  },
+  "expected_result": {
+    "type": "message_visible",
+    "value": "hello_20260417_001"
+  },
+  "preconditions": [
+    "飞书客户端已启动",
+    "测试账号已登录",
+    "目标联系人存在"
+  ]
+}
