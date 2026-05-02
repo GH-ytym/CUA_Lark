@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--save-path",
-        default="backend/tests/scripts/intent_llm_stability_result.json",
+        default="backend/tests/results/intent/intent_llm_stability_result.json",
         help="JSON output path. The report is updated after each run.",
     )
     parser.add_argument(
@@ -56,18 +56,6 @@ def parse_args() -> argparse.Namespace:
         "--pretty",
         action="store_true",
         help="Pretty-print the JSON result for easier inspection.",
-    )
-    parser.add_argument(
-        "--parse-mode",
-        choices=("default", "fastpath", "force_llm"),
-        default="default",
-        help="Runtime parse mode override.",
-    )
-    parser.add_argument(
-        "--recipient-llm",
-        choices=("default", "on", "off"),
-        default="default",
-        help="Override recipient resolver llm usage.",
     )
     return parser.parse_args()
 
@@ -84,16 +72,22 @@ async def run_once(service: IntentService, message: str, index: int) -> dict[str
         "elapsed_ms": elapsed_ms,
         "parse_source": decision.parse_source,
         "intent_type": decision.intent_type.value,
+        "capability_id": decision.standard_action.capability_id.value,
         "reason": decision.reason,
+        "missing_fields": list(decision.missing_fields),
         "resolution_status": resolution_status,
-        "payload": payload,
+        "raw_llm_payload": dict(decision.raw_llm_payload),
+        "final_payload": payload,
     }
 
 
 def to_output_path(raw_path: str) -> Path:
     path = Path(raw_path)
     if not path.is_absolute():
-        path = Path.cwd() / path
+        project_root = Path(__file__).resolve().parents[3]
+        backend_root = Path(__file__).resolve().parents[2]
+        project_candidate = project_root / path
+        path = project_candidate if project_candidate.exists() or str(path).startswith("backend/") else backend_root / path
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -102,12 +96,12 @@ def build_report(
     results: list[dict[str, Any]],
     runtime_config: dict[str, Any],
 ) -> dict[str, Any]:
-    success_count = sum(1 for item in results if item["intent_type"] == "message_send")
+    success_count = sum(1 for item in results if item["capability_id"] == "im.message_send")
     resolved_count = sum(
         1
         for item in results
-        if isinstance(item.get("payload"), dict)
-        and (item["payload"].get("user_id") or item["payload"].get("chat_id"))
+        if isinstance(item.get("final_payload"), dict)
+        and (item["final_payload"].get("user_id") or item["final_payload"].get("chat_id"))
     )
     parse_source_count: dict[str, int] = {}
     resolution_status_count: dict[str, int] = {}
@@ -124,9 +118,9 @@ def build_report(
             {"runs": 0, "message_send_count": 0, "resolved_target_count": 0},
         )
         group["runs"] += 1
-        if item.get("intent_type") == "message_send":
+        if item.get("capability_id") == "im.message_send":
             group["message_send_count"] += 1
-        payload = item.get("payload", {})
+        payload = item.get("final_payload", {})
         if isinstance(payload, dict) and (payload.get("user_id") or payload.get("chat_id")):
             group["resolved_target_count"] += 1
         status = str(item.get("resolution_status", "unknown"))
@@ -232,7 +226,10 @@ def load_messages(args: argparse.Namespace) -> list[str]:
     if args.message_file:
         file_path = Path(args.message_file)
         if not file_path.is_absolute():
-            file_path = Path.cwd() / file_path
+            project_root = Path(__file__).resolve().parents[3]
+            backend_root = Path(__file__).resolve().parents[2]
+            project_candidate = project_root / file_path
+            file_path = project_candidate if project_candidate.exists() or str(file_path).startswith("backend/") else backend_root / file_path
         if file_path.exists():
             for line in file_path.read_text(encoding="utf-8").splitlines():
                 text = line.strip()
@@ -244,25 +241,9 @@ def load_messages(args: argparse.Namespace) -> list[str]:
 
 
 def apply_runtime_mode(service: IntentService, args: argparse.Namespace) -> dict[str, Any]:
-    parse_mode = str(args.parse_mode).strip().lower()
-    if parse_mode == "fastpath":
-        service.settings.intent_message_fastpath_enabled = True
-        service.settings.intent_require_llm = False
-    elif parse_mode == "force_llm":
-        service.settings.intent_message_fastpath_enabled = False
-        service.settings.intent_require_llm = True
-
-    recipient_llm = str(args.recipient_llm).strip().lower()
-    if recipient_llm == "on":
-        service.settings.recipient_resolver_use_llm = True
-    elif recipient_llm == "off":
-        service.settings.recipient_resolver_use_llm = False
-
+    service.settings.intent_require_llm = True
     return {
-        "parse_mode": parse_mode,
-        "intent_message_fastpath_enabled": bool(service.settings.intent_message_fastpath_enabled),
         "intent_require_llm": bool(service.settings.intent_require_llm),
-        "recipient_resolver_use_llm": bool(service.settings.recipient_resolver_use_llm),
         "qwen_configured": bool(service.settings.dashscope_api_key),
         "qwen_model": service.settings.qwen_model,
     }

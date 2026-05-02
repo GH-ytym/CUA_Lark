@@ -1,0 +1,102 @@
+[
+  {
+    "id": "im_send_zh",
+    "message": "给梅家济发消息：hello",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "梅家济",
+      "text": "hello"
+    }
+  },
+  {
+    "id": "im_send_group",
+    "message": "发送消息给小组：今晚 9 点发布，注意回归验证。",
+    "expected_capability_id": "im.message_send",
+    "expected_payload": {
+      "chat_hint": "小组",
+      "text": "今晚 9 点发布，注意回归验证。"
+    }
+  },
+  {
+    "id": "im_search_group",
+    "message": "搜索小组里关于发布的消息",
+    "expected_capability_id": "im.messages_search",
+    "expected_payload": {
+      "chat_hint": "小组",
+      "query": "发布"
+    }
+  },
+  {
+    "id": "chat_list_group",
+    "message": "列出小组最近的聊天记录",
+    "expected_capability_id": "im.chat_messages_list",
+    "expected_payload": {
+      "chat_hint": "小组"
+    }
+  },
+  {
+    "id": "chat_search",
+    "message": "搜索群聊 小组",
+    "expected_capability_id": "im.chat_search",
+    "expected_payload": {
+      "query": "小组"
+    }
+  },
+  {
+    "id": "chat_create",
+    "message": "创建群，名字叫发布小组，描述是发布同步群",
+    "expected_capability_id": "im.chat_create",
+    "expected_payload": {
+      "name": "发布小组",
+      "description": "发布同步群"
+    }
+  },
+  {
+    "id": "task_create_zh",
+    "message": "创建任务：今晚提交周报，截止明天中午12点",
+    "expected_capability_id": "task.create",
+    "expected_payload": {
+      "title": "今晚提交周报"
+    }
+  },
+  {
+    "id": "calendar_create_zh",
+    "message": "帮我创建一个明天下午三点的评审会",
+    "expected_capability_id": "calendar.create",
+    "expected_payload": {
+      "title": "评审会"
+    }
+  },
+  {
+    "id": "docs_create_zh",
+    "message": "创建一篇文档，标题是发布说明",
+    "expected_capability_id": "docs.create",
+    "expected_payload": {
+      "title": "发布说明"
+    }
+  },
+  {
+    "id": "docs_search_zh",
+    "message": "搜索发布说明文档",
+    "expected_capability_id": "docs.search",
+    "expected_payload": {
+      "query": "发布说明"
+    }
+  },
+  {
+    "id": "contact_search_zh",
+    "message": "帮我找一下梅家济",
+    "expected_capability_id": "contact.search",
+    "expected_payload": {
+      "query": "梅家济"
+    }
+  },
+  {
+    "id": "mail_send_zh",
+    "message": "发邮件给产品组，主题是今晚发布提醒",
+    "expected_capability_id": "mail.send",
+    "expected_payload": {
+      "subject": "今晚发布提醒"
+    }
+  }
+]

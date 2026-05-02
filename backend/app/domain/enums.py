@@ -1,6 +1,8 @@
 """Domain enums and state-transition rules."""
 
-from enum import StrEnum
+from enum import IntEnum, StrEnum
+
+from shared.error_codes import UnifiedErrorCode
 
 
 class ExecutionStatus(StrEnum):
@@ -31,6 +33,7 @@ class IntentType(StrEnum):
     CALENDAR_RESCHEDULE = "calendar_reschedule"
     DOC_CREATE = "doc_create"
     SHEET_UPDATE = "sheet_update"
+    MULTI_TASK = "multi_task"
     UNKNOWN = "unknown"
 
 
@@ -59,28 +62,29 @@ class CapabilityId(StrEnum):
     UNKNOWN = "unknown"
 
 
-class LarkCliErrorCode(StrEnum):
-    """CLI failure codes aligned to cua.trigger_rules.LarkCliError."""
+class LarkCliErrorCode(IntEnum):
+    """CLI-facing aliases backed by the shared integer error-code catalog."""
 
-    RATE_LIMIT = "rate_limit_exceeded"
-    API_UNSUPPORTED = "api_unsupported"
-    PERMISSION_DENIED = "permission_denied"
-    API_ERROR = "api_internal_error"
-    RESULT_INVALID = "result_invalid"
-    USER_REQUESTED = "user_requested"
-    HYBRID_TASK_REQUIRED = "hybrid_task_required"
+    RATE_LIMIT = int(UnifiedErrorCode.RATE_LIMIT)
+    API_UNSUPPORTED = int(UnifiedErrorCode.UNSUPPORTED)
+    PERMISSION_DENIED = int(UnifiedErrorCode.PERMISSION_DENIED)
+    RESULT_INVALID = int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
+    API_ERROR = int(UnifiedErrorCode.EXECUTION_ERROR)
+    TIMEOUT = int(UnifiedErrorCode.TIMEOUT)
+    USER_REQUESTED = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+    HYBRID_TASK_REQUIRED = int(UnifiedErrorCode.HANDOFF_REQUIRED)
 
 
-class CuaAbortReason(StrEnum):
-    """Abort reasons aligned to cua.trigger_rules.CuaAbortReason."""
+class CuaAbortReason(IntEnum):
+    """CUA abort aliases backed by the shared integer error-code catalog."""
 
-    LOW_CONFIDENCE = "low_confidence"
-    TIMEOUT = "operation_timeout"
-    INTERFACE_CHANGED = "interface_unexpectedly_changed"
-    MAX_RETRY_EXCEEDED = "max_retry_exceeded"
-    SECURITY_RISK = "security_risk_detected"
-    USER_INTERRUPTED = "user_interrupted"
-    MULTI_MONITOR_UNSUPPORTED = "multi_monitor_unsupported"
+    LOW_CONFIDENCE = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
+    TIMEOUT = int(UnifiedErrorCode.TIMEOUT)
+    INTERFACE_CHANGED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
+    MAX_RETRY_EXCEEDED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
+    SECURITY_RISK = int(UnifiedErrorCode.SECURITY_BLOCKED)
+    USER_INTERRUPTED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
+    MULTI_MONITOR_UNSUPPORTED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
 
 
 ALLOWED_TRANSITIONS: dict[ExecutionStatus, set[ExecutionStatus]] = {

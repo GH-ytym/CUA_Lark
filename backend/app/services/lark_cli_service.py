@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.domain.enums import ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
 from app.domain.models import ExecutorResult, StandardAction
 from app.integrations.lark_cli_adapter import CliCallPlan, LarkCliAdapter
+from shared.error_codes import cli_error_name, normalize_error_code
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,8 @@ class LarkCliService:
     def normalize_failure(self, error_message: str) -> LarkCliErrorCode:
         """Map raw execution errors to CUA-aligned CLI error codes."""
         lower = error_message.lower()
+        if "timeout" in lower or "timed out" in lower:
+            return LarkCliErrorCode.TIMEOUT
         if "rate" in lower or "429" in lower:
             return LarkCliErrorCode.RATE_LIMIT
         if "permission" in lower or "forbidden" in lower or "401" in lower or "403" in lower:
@@ -81,11 +84,16 @@ class LarkCliService:
             return self._executor_failure_result(
                 summary="capability is not supported by current CLI registry",
                 error_code=LarkCliErrorCode.API_UNSUPPORTED,
-                payload=self._build_payload(plan=plan, dry_run=use_dry_run, steps=steps, error={
-                    "code": LarkCliErrorCode.API_UNSUPPORTED.value,
-                    "message": "capability is not supported by current CLI registry",
-                    "detail": {"capability_id": action.capability_id.value},
-                }),
+                payload=self._build_payload(
+                    plan=plan,
+                    dry_run=use_dry_run,
+                    steps=steps,
+                    error=self._build_error_info(
+                        error_code=LarkCliErrorCode.API_UNSUPPORTED,
+                        message="capability is not supported by current CLI registry",
+                        detail={"capability_id": action.capability_id.value},
+                    ),
+                ),
             )
         cli_bin = self._resolve_cli_bin(self.settings.lark_cli_path)
         workdir = self._resolve_workdir(self.settings.lark_cli_workdir)
@@ -95,14 +103,14 @@ class LarkCliService:
             try:
                 argv = self.adapter.build_command(invocation=invocation, cli_bin=cli_bin, dry_run=use_dry_run)
             except ValueError as exc:
-                error = {
-                    "code": LarkCliErrorCode.RESULT_INVALID.value,
-                    "message": f"invalid cli payload: {exc}",
-                    "detail": {
+                error = self._build_error_info(
+                    error_code=LarkCliErrorCode.RESULT_INVALID,
+                    message=f"invalid cli payload: {exc}",
+                    detail={
                         "tool_family": invocation.tool_family,
                         "operation": invocation.operation,
                     },
-                }
+                )
                 return self._executor_failure_result(
                     summary=f"invalid cli payload: {exc}",
                     error_code=LarkCliErrorCode.RESULT_INVALID,
@@ -121,24 +129,24 @@ class LarkCliService:
                     cwd=workdir,
                 )
             except subprocess.TimeoutExpired as exc:
-                error = {
-                    "code": LarkCliErrorCode.RATE_LIMIT.value,
-                    "message": f"cli execution timeout: {timeout}s",
-                    "detail": {"command": rendered, "timeout": timeout, "stderr": str(exc)},
-                }
+                error = self._build_error_info(
+                    error_code=LarkCliErrorCode.TIMEOUT,
+                    message=f"cli execution timeout: {timeout}s",
+                    detail={"command": rendered, "timeout": timeout, "stderr": str(exc)},
+                )
                 return self._executor_failure_result(
                     summary=f"cli execution timeout: {timeout}s",
-                    error_code=LarkCliErrorCode.RATE_LIMIT,
+                    error_code=LarkCliErrorCode.TIMEOUT,
                     payload=self._build_payload(plan=plan, dry_run=use_dry_run, steps=steps, error=error),
                     duration_ms=self._elapsed_ms(started_all),
                 )
             except Exception as exc:  # noqa: BLE001
                 code = self.normalize_failure(str(exc))
-                error = {
-                    "code": code.value,
-                    "message": f"cli invocation failed before execution: {exc}",
-                    "detail": {"command": rendered},
-                }
+                error = self._build_error_info(
+                    error_code=code,
+                    message=f"cli invocation failed before execution: {exc}",
+                    detail={"command": rendered},
+                )
                 return self._executor_failure_result(
                     summary=f"cli invocation failed before execution: {exc}",
                     error_code=code,
@@ -163,11 +171,11 @@ class LarkCliService:
             if proc.returncode != 0:
                 error_text = stderr_text.strip() or stdout_text.strip() or "cli returned non-zero"
                 code = self.normalize_failure(error_text)
-                error = {
-                    "code": code.value,
-                    "message": "cli command failed",
-                    "detail": {"last_error": error_text},
-                }
+                error = self._build_error_info(
+                    error_code=code,
+                    message="cli command failed",
+                    detail={"last_error": error_text},
+                )
                 return self._executor_failure_result(
                     summary="cli command failed",
                     error_code=code,
@@ -207,8 +215,13 @@ class LarkCliService:
         plan: CliCallPlan,
         result: ExecutorResult,
     ) -> LarkCliServiceResult:
-        raw_error_code = result.error_code.strip()
-        error_code = LarkCliErrorCode(raw_error_code) if raw_error_code else None
+        normalized = normalize_error_code(result.error_code)
+        error_code = None
+        if normalized is not None:
+            try:
+                error_code = LarkCliErrorCode(int(normalized))
+            except ValueError:
+                error_code = None
         return LarkCliServiceResult(
             success=result.success,
             error_code=error_code,
@@ -231,7 +244,7 @@ class LarkCliService:
             status=ExecutionStatus.CLI_FAILED,
             summary=summary,
             payload=payload,
-            error_code=error_code.value,
+            error_code=int(error_code),
             duration_ms=duration_ms,
         )
 
@@ -244,7 +257,7 @@ class LarkCliService:
         summary: str,
         detail: dict[str, Any] | None = None,
     ) -> LarkCliServiceResult:
-        error = {"code": error_code.value, "message": summary, "detail": detail or {}}
+        error = self._build_error_info(error_code=error_code, message=summary, detail=detail)
         return LarkCliServiceResult(
             success=False,
             error_code=error_code,
@@ -252,6 +265,19 @@ class LarkCliService:
             payload=self._build_payload(plan=plan, dry_run=dry_run, steps=steps, error=error),
             plan=plan,
         )
+
+    @staticmethod
+    def _build_error_info(
+        error_code: LarkCliErrorCode,
+        message: str,
+        detail: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "code": int(error_code),
+            "name": cli_error_name(error_code),
+            "message": message,
+            "detail": detail or {},
+        }
 
     @staticmethod
     def _elapsed_ms(started: float) -> float:

@@ -1,1 +1,179 @@
-﻿# CUA service that will manage screenshot capture, visual planning, action execution, and safety confirmation.
+"""CUA fallback service that bridges the backend orchestrator to the desktop executor."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import sys
+from typing import Any
+
+from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType
+from app.domain.models import ExecutorResult, StandardAction
+from shared.error_codes import UnifiedErrorCode, cli_error_name, cua_error_name
+
+
+class CuaService:
+    """Execute a CUA fallback request and normalize its result for the orchestrator."""
+
+    def execute_fallback(
+        self,
+        *,
+        action: StandardAction,
+        raw_message: str,
+        task_id: str,
+        cli_error_code: int | None,
+        cli_payload: dict[str, object] | None = None,
+    ) -> ExecutorResult:
+        """Trigger the desktop CUA flow after CLI failure and return one unified result."""
+        request_payload = self._build_request_payload(action=action, raw_message=raw_message)
+        fallback_request = self._build_fallback_request(
+            action=action,
+            raw_message=raw_message,
+            task_id=task_id,
+            cli_error_code=cli_error_code,
+            cli_payload=cli_payload,
+            request_payload=request_payload,
+        )
+        try:
+            executor_cls, request_cls = self._load_executor_components()
+            executor = executor_cls()
+            response = executor.run(request_cls(**request_payload))
+        except Exception as exc:  # noqa: BLE001
+            error_code = int(UnifiedErrorCode.EXECUTION_ERROR)
+            error_message = f"cua fallback failed before execution: {exc}"
+            return ExecutorResult(
+                executor=ExecutorType.CUA,
+                success=False,
+                status=ExecutionStatus.FAILED,
+                summary=error_message,
+                payload={
+                    "mode": "cua_fallback",
+                    "task_id": task_id,
+                    "fallback_request": fallback_request,
+                    "request": request_payload,
+                    "triggered_by": self._build_triggered_by(cli_error_code),
+                    "cli_payload": cli_payload or {},
+                    "error": {
+                        "code": error_code,
+                        "name": cua_error_name(error_code),
+                        "message": error_message,
+                        "detail": {"exception": str(exc)},
+                    },
+                },
+                error_code=error_code,
+            )
+
+        response_payload = response.model_dump() if hasattr(response, "model_dump") else dict(response)
+        success = bool(getattr(response, "success", False))
+        summary = str(getattr(response, "message", "")).strip() or "cua fallback finished"
+        error_code = None if success else int(self._map_failure_code(response_payload=response_payload, summary=summary))
+        payload: dict[str, object] = {
+            "mode": "cua_fallback",
+            "task_id": task_id,
+            "fallback_request": fallback_request,
+            "request": request_payload,
+            "triggered_by": self._build_triggered_by(cli_error_code),
+            "cli_payload": cli_payload or {},
+            "cua_response": response_payload,
+        }
+        if error_code is not None:
+            payload["error"] = {
+                "code": error_code,
+                "name": cua_error_name(error_code),
+                "message": summary,
+                "detail": {"diagnosis_report": response_payload.get("diagnosis_report")},
+            }
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=success,
+            status=ExecutionStatus.COMPLETED if success else ExecutionStatus.FAILED,
+            summary=summary,
+            payload=payload,
+            error_code=error_code,
+        )
+
+    @staticmethod
+    def _build_request_payload(action: StandardAction, raw_message: str) -> dict[str, str]:
+        return {
+            "instruction": CuaService._instruction_from_action(action=action, raw_message=raw_message),
+            "app_name": "飞书",
+        }
+
+    @staticmethod
+    def _build_fallback_request(
+        *,
+        action: StandardAction,
+        raw_message: str,
+        task_id: str,
+        cli_error_code: int | None,
+        cli_payload: dict[str, object] | None,
+        request_payload: dict[str, str],
+    ) -> dict[str, object]:
+        return {
+            "task_id": task_id,
+            "raw_message": raw_message,
+            "standard_action": action.model_dump(),
+            "cli_error_code": cli_error_code,
+            "cli_payload": cli_payload or {},
+            "cua_request": request_payload,
+        }
+
+    @staticmethod
+    def _build_triggered_by(cli_error_code: int | None) -> dict[str, object]:
+        return {
+            "cli_error_code": cli_error_code,
+            "cli_error_name": cli_error_name(cli_error_code),
+        }
+
+    @staticmethod
+    def _instruction_from_action(action: StandardAction, raw_message: str) -> str:
+        payload = action.payload
+        if action.capability_id == CapabilityId.IM_MESSAGE_SEND:
+            target = (
+                str(payload.get("resolved_name", "")).strip()
+                or str(payload.get("chat_hint", "")).strip()
+                or "目标对象"
+            )
+            text = str(payload.get("text", "")).strip()
+            if text:
+                return f"请在飞书中向{target}发送消息：{text}"
+        return raw_message.strip() or action.capability_id.value
+
+    @staticmethod
+    def _map_failure_code(response_payload: dict[str, object], summary: str) -> UnifiedErrorCode:
+        diagnosis = response_payload.get("diagnosis_report")
+        diagnosis_type = ""
+        if isinstance(diagnosis, dict):
+            diagnosis_type = str(diagnosis.get("error_type", "")).strip().upper()
+
+        lowered_summary = summary.lower()
+        if "timeout" in lowered_summary or "超时" in summary:
+            return UnifiedErrorCode.TIMEOUT
+        if diagnosis_type == "PERMISSION_BLOCKED":
+            return UnifiedErrorCode.SECURITY_BLOCKED
+        if "security" in lowered_summary or "风险" in summary or "安全" in summary:
+            return UnifiedErrorCode.SECURITY_BLOCKED
+        if diagnosis_type in {"INTERFACE_CHANGED", "COORDINATE_OFFSET", "ELEMENT_NOT_FOUND"}:
+            return UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE
+        if (
+            "interrupted" in lowered_summary
+            or "retry" in lowered_summary
+            or "confidence" in lowered_summary
+            or "界面" in summary
+            or "置信度" in summary
+            or "中断" in summary
+            or "重试" in summary
+        ):
+            return UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE
+        return UnifiedErrorCode.EXECUTION_ERROR
+
+    @staticmethod
+    def _load_executor_components() -> tuple[type[Any], type[Any]]:
+        project_root = Path(__file__).resolve().parents[3]
+        project_root_text = str(project_root)
+        if project_root_text not in sys.path:
+            sys.path.append(project_root_text)
+
+        from cua.executor import CuaExecutor
+        from cua.schemas import CuaRequest
+
+        return CuaExecutor, CuaRequest

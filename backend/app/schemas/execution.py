@@ -1,1 +1,26 @@
-﻿# Execution schemas that will shape progress events, timeline items, and final result payloads.
+"""Execution detail schemas exposed to frontend and integration tooling."""
+
+from datetime import datetime
+
+from pydantic import BaseModel, Field
+
+from app.domain.enums import ExecutionStatus, IntentType
+from app.domain.models import ExecutorResult, PlannedActionItem, StandardAction, TaskStep
+
+
+class ExecutionDetailResponse(BaseModel):
+    """Serializable execution record for one task."""
+
+    task_id: str
+    session_id: str
+    user_id: str
+    raw_message: str
+    status: ExecutionStatus
+    intent_type: IntentType
+    standard_action: StandardAction = Field(default_factory=StandardAction)
+    planned_actions: list[PlannedActionItem] = Field(default_factory=list)
+    needs_confirmation: bool = False
+    executor_result: ExecutorResult | None = None
+    steps: list[TaskStep] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime

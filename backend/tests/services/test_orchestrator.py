@@ -1,10 +1,11 @@
 import asyncio
 
-from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
+from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
 from app.domain.models import ExecutorResult, StandardAction
 from app.schemas.chat import ExecuteCommandRequest
 from app.services.intent_service import IntentDecision
 from app.services.orchestrator import OrchestratorService
+from shared.error_codes import CLI_TRIGGER_ERROR_CODES, UnifiedErrorCode
 
 
 def request(message: str = "给项目群发今晚发布", confirmed_entity_id: str = "") -> ExecuteCommandRequest:
@@ -118,20 +119,116 @@ def test_orchestrator_maps_cli_failure_to_cua_trigger() -> None:
             success=False,
             status=ExecutionStatus.CLI_FAILED,
             summary="cli command failed",
-            error_code="permission_denied",
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
             payload={
                 "domain": "message",
                 "dry_run": False,
                 "steps": [{"exit_code": 2}],
-                "error": {"code": "permission_denied"},
+                "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"},
             },
+        )
+
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback", "cua_response": {"success": True}},
         )
 
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request()))
+    task = service.get_task(response.task_id)
+
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cli_error_code == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert response.cua_error_code is None
+    assert response.cua_should_trigger is True
+    assert response.execution_summary == "cua fallback executed"
+    assert response.execution_payload["mode"] == "cua_fallback"
+    assert task is not None
+    assert [step.name for step in task.steps] == [
+        "task_created",
+        "intent_parsed",
+        "cli_started",
+        "cli_finished",
+        "cua_started",
+        "cua_finished",
+    ]
+
+
+def test_orchestrator_marks_failed_when_cua_fallback_fails() -> None:
+    service = OrchestratorService()
+    payload = {
+        "chat_hint": "项目群",
+        "chat_id": "oc_proj",
+        "user_id": "",
+        "text": "今晚发布",
+        "resolution_status": "resolved",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return decision(payload)
+
+    def fake_execute_action(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=False,
+            status=ExecutionStatus.CLI_FAILED,
+            summary="cli command failed",
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
+            payload={"domain": "message", "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"}},
+        )
+
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=False,
+            status=ExecutionStatus.FAILED,
+            summary="cua fallback failed",
+            payload={
+                "mode": "cua_fallback",
+                "error": {
+                    "code": int(UnifiedErrorCode.EXECUTION_ERROR),
+                    "name": "cua_execution_error",
+                    "message": "window not found",
+                },
+            },
+            error_code=int(UnifiedErrorCode.EXECUTION_ERROR),
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request()))
 
-    assert response.execution_status == ExecutionStatus.CLI_FAILED
-    assert response.cli_error_code == "permission_denied"
+    assert response.execution_status == ExecutionStatus.FAILED
     assert response.cua_should_trigger is True
+    assert response.cli_error_code == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert response.cua_error_code == int(UnifiedErrorCode.EXECUTION_ERROR)
+    assert response.execution_payload["mode"] == "cua_fallback"
+    assert response.execution_payload["error"]["message"] == "window not found"
+
+
+def test_should_trigger_cua_aligns_with_trigger_rule_evaluator() -> None:
+    assert OrchestratorService._load_trigger_rule_evaluator() is not None
+    for error_code in CLI_TRIGGER_ERROR_CODES:
+        assert OrchestratorService._should_trigger_cua(
+            error_code,
+            execution_payload={"error": {"code": error_code}},
+            success=False,
+        )
+
+    assert (
+        OrchestratorService._should_trigger_cua(
+            None,
+            execution_payload={"steps": [{"exit_code": 0}]},
+            success=True,
+        )
+        is False
+    )

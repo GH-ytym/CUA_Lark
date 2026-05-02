@@ -1,34 +1,30 @@
 from fastapi.testclient import TestClient
 
-from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
-from app.domain.models import ExecutorResult, StandardAction
+from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
+from app.domain.models import ExecutorResult
 from app.main import create_app
 from app.services.intent_service import IntentDecision
 from shared.error_codes import UnifiedErrorCode
 
 
-def test_execute_command_automatically_falls_back_to_cua(monkeypatch) -> None:
+def test_get_execution_detail_returns_recorded_steps(monkeypatch) -> None:
     async def fake_parse(*_: object, **__: object) -> IntentDecision:
-        payload = {
-            "chat_hint": "项目群",
-            "chat_id": "oc_proj",
-            "user_id": "",
-            "text": "今晚发布",
-            "resolution_status": "resolved",
-        }
         return IntentDecision(
             intent_type=IntentType.MESSAGE_SEND,
             reason="对象已解析，可直接发送",
             action_plan=["定位接收对象", "发送消息", "回执"],
             selected_executor=ExecutorType.CLI,
             parse_source="rules_resolve_first",
-            standard_action=StandardAction(
-                capability_id=CapabilityId.IM_MESSAGE_SEND,
-                payload=payload,
-                executor_hint=ExecutorType.CLI,
-                intent_type=IntentType.MESSAGE_SEND,
-            ),
-            structured_command={"intent_type": IntentType.MESSAGE_SEND.value, "payload": payload},
+            structured_command={
+                "intent_type": IntentType.MESSAGE_SEND.value,
+                "payload": {
+                    "chat_hint": "项目群",
+                    "chat_id": "oc_proj",
+                    "user_id": "",
+                    "text": "今晚发布",
+                    "resolution_status": "resolved",
+                },
+            },
         )
 
     from app.api.routes import agent
@@ -58,15 +54,12 @@ def test_execute_command_automatically_falls_back_to_cua(monkeypatch) -> None:
             success=True,
             status=ExecutionStatus.COMPLETED,
             summary="cua fallback executed",
-            payload={
-                "mode": "cua_fallback",
-                "cua_response": {"success": True, "message": "ok"},
-            },
+            payload={"mode": "cua_fallback", "cua_response": {"success": True}},
         ),
     )
 
     client = TestClient(create_app())
-    response = client.post(
+    execute_response = client.post(
         "/api/agent/execute",
         json={
             "message": "给项目群发今晚发布",
@@ -77,8 +70,26 @@ def test_execute_command_automatically_falls_back_to_cua(monkeypatch) -> None:
         },
     )
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["execution_status"] == "completed"
-    assert data["cua_should_trigger"] is True
-    assert data["execution_payload"]["mode"] == "cua_fallback"
+    task_id = execute_response.json()["task_id"]
+    detail_response = client.get(f"/api/executions/{task_id}")
+
+    assert detail_response.status_code == 200
+    data = detail_response.json()
+    assert data["task_id"] == task_id
+    assert data["status"] == "completed"
+    assert [step["name"] for step in data["steps"]] == [
+        "task_created",
+        "intent_parsed",
+        "cli_started",
+        "cli_finished",
+        "cua_started",
+        "cua_finished",
+    ]
+
+
+def test_get_execution_detail_returns_404_for_unknown_task() -> None:
+    client = TestClient(create_app())
+    response = client.get("/api/executions/not-found")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "task not found: not-found"

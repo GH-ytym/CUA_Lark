@@ -3,6 +3,7 @@ import subprocess
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
 from app.domain.models import StandardAction
 from app.services.lark_cli_service import LarkCliService
+from shared.error_codes import UnifiedErrorCode
 
 
 def test_execute_success_uses_unified_payload(monkeypatch) -> None:
@@ -100,6 +101,69 @@ def test_message_reply_requires_message_target() -> None:
         raise AssertionError("reply without message_id/thread_id should fail")
 
 
+def test_chat_messages_list_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_CHAT_MESSAGES_LIST,
+            payload={"chat_id": "oc_demo", "limit": 10, "identity": "user"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "im", "+chat-messages-list", "--as"]
+    assert "--chat-id" in argv
+    assert "oc_demo" in argv
+    assert "--page-size" in argv
+    assert "10" in argv
+    assert "--dry-run" in argv
+
+
+def test_chat_search_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_CHAT_SEARCH,
+            payload={"query": "项目群", "limit": 5, "identity": "user"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "im", "+chat-search", "--as"]
+    assert "--query" in argv
+    assert "项目群" in argv
+    assert "--page-size" in argv
+    assert "5" in argv
+    assert "--dry-run" in argv
+
+
+def test_chat_create_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.IM_CHAT_CREATE,
+            payload={"name": "发布小组", "description": "发布同步群", "identity": "bot"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "im", "+chat-create", "--as"]
+    assert "--name" in argv
+    assert "发布小组" in argv
+    assert "--description" in argv
+    assert "发布同步群" in argv
+    assert "--dry-run" in argv
+
+
 def test_execute_invalid_payload_returns_result_invalid() -> None:
     service = LarkCliService()
     result = service.execute(
@@ -108,9 +172,10 @@ def test_execute_invalid_payload_returns_result_invalid() -> None:
         dry_run=True,
     )
     assert result.success is False
-    assert result.error_code == LarkCliErrorCode.RESULT_INVALID
+    assert result.error_code == int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
     assert result.payload["steps"] == []
-    assert result.payload["error"]["code"] == LarkCliErrorCode.RESULT_INVALID.value
+    assert result.payload["error"]["code"] == int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
+    assert result.payload["error"]["name"] == "result_invalid"
 
 
 def test_execute_non_zero_exit_maps_error_code(monkeypatch) -> None:
@@ -131,13 +196,14 @@ def test_execute_non_zero_exit_maps_error_code(monkeypatch) -> None:
         dry_run=True,
     )
     assert result.success is False
-    assert result.error_code == LarkCliErrorCode.PERMISSION_DENIED
+    assert result.error_code == int(UnifiedErrorCode.PERMISSION_DENIED)
     assert len(result.payload["steps"]) == 1
-    assert result.payload["error"]["code"] == LarkCliErrorCode.PERMISSION_DENIED.value
+    assert result.payload["error"]["code"] == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert result.payload["error"]["name"] == "permission_denied"
     assert "permission denied" in result.payload["error"]["detail"]["last_error"]
 
 
-def test_execute_timeout_returns_rate_limit(monkeypatch) -> None:
+def test_execute_timeout_returns_timeout(monkeypatch) -> None:
     service = LarkCliService()
     service.settings.lark_cli_timeout_seconds = 1
 
@@ -151,6 +217,7 @@ def test_execute_timeout_returns_rate_limit(monkeypatch) -> None:
         dry_run=True,
     )
     assert result.success is False
-    assert result.error_code == LarkCliErrorCode.RATE_LIMIT
-    assert result.payload["error"]["code"] == LarkCliErrorCode.RATE_LIMIT.value
+    assert result.error_code == int(UnifiedErrorCode.TIMEOUT)
+    assert result.payload["error"]["code"] == int(UnifiedErrorCode.TIMEOUT)
+    assert result.payload["error"]["name"] == "operation_timeout"
     assert result.payload["error"]["detail"]["timeout"] == 1

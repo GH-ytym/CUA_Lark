@@ -28,6 +28,11 @@ def parse_args() -> ArgumentParser:
         default="",
         help="SQLite output path. Defaults to settings.recipient_sqlite_path.",
     )
+    parser.add_argument(
+        "--replace-existing",
+        action="store_true",
+        help="Allow overwriting an existing sqlite file. Default is false for safety.",
+    )
     return parser
 
 
@@ -225,6 +230,11 @@ def main() -> None:
     args = parse_args().parse_args()
     CLI_BIN = resolve_cli_bin()
     db_path = resolve_db_path(args.db_path)
+    if db_path.exists() and not args.replace_existing:
+        raise SystemExit(
+            f"refusing to overwrite existing sqlite file: {db_path}. "
+            "Pass --replace-existing only when you explicitly want to rebuild it."
+        )
     contacts = fetch_contacts()
     chats = fetch_chats()
     all_records = contacts + chats
