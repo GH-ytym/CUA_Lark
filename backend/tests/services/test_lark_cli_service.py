@@ -164,6 +164,90 @@ def test_chat_create_builds_cli_command() -> None:
     assert "--dry-run" in argv
 
 
+def test_doc_create_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.DOC_CREATE,
+            payload={"title": "小组消息跟进", "content": "记录群消息重点"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.DOC_CREATE,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "docs", "+create", "--as"]
+    assert "--title" in argv
+    assert "小组消息跟进" in argv
+    assert "--markdown" in argv
+    assert "记录群消息重点" in argv
+    assert "--dry-run" in argv
+
+
+def test_doc_update_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.DOC_UPDATE,
+            payload={"doc_token": "doccn123", "title": "小组消息跟进", "content": "补充同步结论"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.DOC_CREATE,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "docs", "+update", "--as"]
+    assert "--doc" in argv
+    assert "doccn123" in argv
+    assert "--mode" in argv
+    assert "append" in argv
+    assert "--markdown" in argv
+    assert "补充同步结论" in argv
+    assert "--new-title" in argv
+    assert "小组消息跟进" in argv
+    assert "--dry-run" in argv
+
+
+def test_doc_search_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.DOC_SEARCH,
+            payload={"query": "小组消息跟进"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.DOC_CREATE,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "docs", "+search", "--as"]
+    assert "--query" in argv
+    assert "小组消息跟进" in argv
+    assert "--dry-run" in argv
+
+
+def test_doc_update_requires_doc_token() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.DOC_UPDATE,
+            payload={"title": "小组消息跟进", "content": "补充同步结论"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.DOC_CREATE,
+        )
+    )
+
+    try:
+        service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+    except ValueError as exc:
+        assert "missing doc_token" in str(exc)
+    else:
+        raise AssertionError("docs update without doc_token should fail")
+
+
 def test_execute_invalid_payload_returns_result_invalid() -> None:
     service = LarkCliService()
     result = service.execute(

@@ -363,3 +363,74 @@ def test_orchestrator_cli_failure_does_not_retry_and_hands_off_once_to_cua() -> 
     assert cua_calls[0]["cli_error_code"] == int(UnifiedErrorCode.PERMISSION_DENIED)
     assert response.cua_should_trigger is True
     assert response.execution_status == ExecutionStatus.COMPLETED
+
+
+def test_orchestrator_docs_failure_reuses_existing_fallback_flow() -> None:
+    service = OrchestratorService()
+    payload = {
+        "title": "小组消息跟进",
+        "content": "记录群消息重点",
+        "folder_token": "",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return IntentDecision(
+            intent_type=IntentType.DOC_CREATE,
+            reason="docs create request",
+            action_plan=["draft title", "create doc"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_plan",
+            standard_action=StandardAction(
+                capability_id=CapabilityId.DOC_CREATE,
+                payload=payload,
+                executor_hint=ExecutorType.CLI,
+                intent_type=IntentType.DOC_CREATE,
+            ),
+            structured_command={"intent_type": IntentType.DOC_CREATE.value, "payload": payload},
+        )
+
+    def fake_execute_action(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=False,
+            status=ExecutionStatus.CLI_FAILED,
+            summary="cli command failed",
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
+            payload={
+                "domain": "doc_sheet",
+                "dry_run": False,
+                "steps": [{"exit_code": 2}],
+                "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"},
+            },
+        )
+
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback", "cua_response": {"success": True}},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("创建文档《小组消息跟进》")))
+    task = service.get_task(response.task_id)
+
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cli_error_code == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert response.cua_should_trigger is True
+    assert response.execution_summary == "cua fallback executed"
+    assert response.execution_payload["mode"] == "cua_fallback"
+    assert task is not None
+    assert [step.name for step in task.steps] == [
+        "task_created",
+        "intent_parsed",
+        "cli_started",
+        "cli_finished",
+        "cua_started",
+        "cua_finished",
+    ]

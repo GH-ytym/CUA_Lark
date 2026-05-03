@@ -477,7 +477,12 @@ class OrchestratorService:
 
     @staticmethod
     def _is_cli_command_implemented(action: StandardAction) -> bool:
-        return action.capability_id == CapabilityId.IM_MESSAGE_SEND
+        return action.capability_id in {
+            CapabilityId.IM_MESSAGE_SEND,
+            CapabilityId.DOC_CREATE,
+            CapabilityId.DOC_UPDATE,
+            CapabilityId.DOC_SEARCH,
+        }
 
     @staticmethod
     def _should_trigger_cua(

@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app.domain.enums import CapabilityId
+from app.domain.enums import CapabilityId, IntentType
 from app.services.intent_service import IntentService
 
 
@@ -59,3 +59,59 @@ def test_llm_contract_maps_main_capabilities(
     assert decision.standard_action.capability_id == capability_id
     for key, value in expected_payload.items():
         assert decision.standard_action.payload.get(key) == value
+
+
+def test_llm_contract_supports_message_then_docs_sequence() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+    service.settings.intent_require_llm = True
+
+    async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = dict(kwargs["payload"])
+        if payload.get("chat_hint") == "梅家济":
+            payload["user_id"] = "ou_mei"
+            payload["resolution_status"] = "resolved"
+        return payload
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "reason": "plan the user request in order",
+                    "action_plan": ["send reminder", "create follow-up doc"],
+                    "tasks": [
+                        {
+                            "raw_message": "跟梅家济说注意群里的消息",
+                            "capability_id": "im.message_send",
+                            "reason": "send the reminder first",
+                            "action_plan": ["resolve target", "send message"],
+                            "payload": {"chat_hint": "梅家济", "text": "注意群里的消息"},
+                            "missing_fields": [],
+                        },
+                        {
+                            "raw_message": "然后创建文档《小组消息跟进》",
+                            "capability_id": "docs.create",
+                            "reason": "create the follow-up doc",
+                            "action_plan": ["draft title", "create doc"],
+                            "payload": {"title": "小组消息跟进", "content": ""},
+                            "missing_fields": [],
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("跟梅家济说注意群里的消息，然后创建文档《小组消息跟进》"))
+
+    assert decision.intent_type == IntentType.MULTI_TASK
+    assert decision.parse_source == "qwen_multi_plan"
+    assert decision.task_clauses == ["跟梅家济说注意群里的消息", "然后创建文档《小组消息跟进》"]
+    assert decision.planned_actions[0].capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert decision.planned_actions[0].payload["user_id"] == "ou_mei"
+    assert decision.planned_actions[1].capability_id == CapabilityId.DOC_CREATE
+    assert decision.planned_actions[1].payload["title"] == "小组消息跟进"

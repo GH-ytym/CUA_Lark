@@ -330,3 +330,152 @@ def test_llm_unavailable_returns_unknown() -> None:
 
     assert decision.parse_source == "llm_unavailable"
     assert decision.standard_action.capability_id == CapabilityId.UNKNOWN
+
+
+def test_invalid_first_plan_triggers_authoritative_reask() -> None:
+    service = _make_service()
+    prompts: list[str] = []
+    responses = [
+        json.dumps(
+            {
+                "t": [
+                    {
+                        "m": "send update",
+                        "c": "not.registered",
+                        "p": {"text": "ready"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        json.dumps(
+            {
+                "t": [
+                    {
+                        "m": "send update",
+                        "c": "im.message_send",
+                        "p": {"chat_hint": "Alex", "text": "ready"},
+                        "miss": [],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+    ]
+
+    async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = dict(kwargs["payload"])
+        payload["user_id"] = "ou_alex"
+        return payload
+
+    async def fake_chat_completion(system_prompt: str, *_: object, **__: object) -> tuple[str, str | None]:
+        prompts.append(system_prompt)
+        return responses.pop(0), None
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("send Alex: ready"))
+
+    assert decision.parse_source == "qwen_authoritative_reask"
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert decision.standard_action.payload["user_id"] == "ou_alex"
+    assert "authoritative validator" in prompts[1]
+
+
+def test_payload_fields_outside_registry_schema_trigger_authoritative_reask() -> None:
+    service = _make_service()
+    responses = [
+        json.dumps(
+            {
+                "t": [
+                    {
+                        "m": "send update",
+                        "c": "im.message_send",
+                        "p": {"chat_hint": "Alex", "text": "ready", "unsupported": "drop me"},
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        json.dumps(
+            {
+                "t": [
+                    {
+                        "m": "send update",
+                        "c": "im.message_send",
+                        "p": {"chat_hint": "Alex", "text": "ready"},
+                        "miss": [],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+    ]
+
+    async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        return dict(kwargs["payload"])
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return responses.pop(0), None
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("send Alex: ready"))
+
+    assert decision.parse_source == "qwen_authoritative_reask"
+    assert "unsupported" not in decision.standard_action.payload
+    assert decision.standard_action.payload["chat_hint"] == "Alex"
+
+
+def test_missing_task_payload_is_repaired_by_llm_without_rule_guessing() -> None:
+    service = _make_service()
+    payloads: list[dict[str, object]] = []
+    responses = [
+        json.dumps(
+            {
+                "t": [
+                    {
+                        "m": "send update to Alex",
+                        "c": "im.message_send",
+                        "p": {"chat_hint": "", "text": "ready"},
+                        "miss": ["chat_hint"],
+                    }
+                ]
+            },
+            ensure_ascii=False,
+        ),
+        json.dumps(
+            {
+                "c": "im.message_send",
+                "p": {"chat_hint": "Alex", "text": "ready"},
+                "miss": [],
+            },
+            ensure_ascii=False,
+        ),
+    ]
+
+    async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = dict(kwargs["payload"])
+        if payload.get("chat_hint") == "Alex":
+            payload["user_id"] = "ou_alex"
+        return payload
+
+    async def fake_chat_completion(*_: object, **kwargs: object) -> tuple[str, str | None]:
+        user_payload = kwargs.get("user_payload")
+        if isinstance(user_payload, dict):
+            payloads.append(user_payload)
+        return responses.pop(0), None
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("send update to Alex: ready"))
+
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert decision.standard_action.payload["chat_hint"] == "Alex"
+    assert decision.standard_action.payload["user_id"] == "ou_alex"
+    assert decision.missing_fields == []
+    assert payloads[1]["missing_fields"] == ["chat_hint"]
+    assert payloads[1]["capability_schema"]["capability_id"] == "im.message_send"

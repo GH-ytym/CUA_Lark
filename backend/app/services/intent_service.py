@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import re
 from typing import Any
@@ -10,26 +11,35 @@ import httpx
 from pydantic import Field
 
 from app.core.config import get_settings
-from app.domain.capability_registry import missing_required_fields, normalize_payload
+from app.domain.capability_registry import (
+    CAPABILITY_REGISTRY,
+    CapabilitySpec,
+    get_capability_spec,
+    missing_execution_fields,
+    normalize_payload,
+)
 from app.domain.enums import CapabilityId, ExecutorType, IntentType
 from app.domain.models import StandardAction
 from app.schemas.chat import ParsePreviewResponse
 from app.services.recipient_resolver import RecipientResolver
 
 MESSAGE_CAPABILITIES_WITH_TARGET = {
-    CapabilityId.IM_MESSAGE_SEND,
-    CapabilityId.IM_MESSAGES_SEARCH,
-    CapabilityId.IM_CHAT_MESSAGES_LIST,
+    capability_id
+    for capability_id, spec in CAPABILITY_REGISTRY.items()
+    if "chat_hint" in spec.payload_fields
 }
 LIST_FIELDS = {"member_hints", "attendees", "user_hints", "to_hints", "assignee_hints", "attachments", "cc"}
-BOT_IDENTITY_CAPABILITIES = {CapabilityId.IM_CHAT_CREATE}
-USER_IDENTITY_CAPABILITIES = {
-    CapabilityId.IM_MESSAGE_SEND,
-    CapabilityId.IM_MESSAGES_REPLY,
-    CapabilityId.IM_MESSAGES_SEARCH,
-    CapabilityId.IM_CHAT_MESSAGES_LIST,
-    CapabilityId.IM_CHAT_SEARCH,
-}
+
+
+@dataclass(frozen=True)
+class PlanCandidate:
+    """One candidate plan returned from one LLM prompting strategy."""
+
+    source: str
+    raw_payload: dict[str, object] | None
+    normalized: dict[str, object] | None
+    issues: tuple[str, ...]
+    llm_error: str | None = None
 
 
 class IntentDecision(ParsePreviewResponse):
@@ -86,17 +96,244 @@ class IntentService:
             allow_retry=True,
             timeout_seconds=max(1, int(self.settings.qwen_intent_timeout_seconds)),
         )
-        if raw_payload is None:
-            return None if llm_error else self._build_unknown_decision(reason="invalid llm output", parse_source="qwen_invalid")
+        first_candidate = self._build_plan_candidate(
+            source="qwen_plan",
+            raw_payload=raw_payload,
+            llm_error=llm_error,
+            original_message=message,
+        )
+        if first_candidate.raw_payload is None:
+            return None if first_candidate.llm_error else self._build_unknown_decision(
+                reason="invalid llm output",
+                parse_source="qwen_invalid",
+            )
 
-        normalized = self._normalize_request_plan_payload(data=raw_payload, original_message=message)
-        if normalized is None:
+        candidate = first_candidate
+        if candidate.normalized is None or candidate.issues:
+            candidate = await self._authoritative_reask(
+                message=message,
+                context_hint=context_hint,
+                previous_candidate=first_candidate,
+            )
+
+        if candidate.normalized is None or candidate.issues:
             return self._build_unknown_decision(
                 reason="invalid llm contract",
                 parse_source="qwen_invalid",
-                raw_llm_payload=raw_payload,
+                raw_llm_payload=candidate.raw_payload or first_candidate.raw_payload,
             )
 
+        candidate = await self._repair_missing_tasks_if_needed(
+            candidate=candidate,
+            message=message,
+            context_hint=context_hint,
+        )
+        if candidate.normalized is None or candidate.issues:
+            return self._build_unknown_decision(
+                reason="invalid repaired llm contract",
+                parse_source="qwen_invalid",
+                raw_llm_payload=candidate.raw_payload or first_candidate.raw_payload,
+            )
+
+        return await self._build_decision_from_request_plan(
+            normalized=candidate.normalized,
+            raw_payload=candidate.raw_payload or {},
+            parse_source=candidate.source,
+        )
+
+    def _build_plan_candidate(
+        self,
+        source: str,
+        raw_payload: dict[str, object] | None,
+        llm_error: str | None,
+        original_message: str,
+    ) -> PlanCandidate:
+        normalized = self._normalize_request_plan_payload(data=raw_payload, original_message=original_message)
+        issues = tuple(self._validate_request_plan_payload(normalized))
+        return PlanCandidate(
+            source=source,
+            raw_payload=raw_payload,
+            normalized=normalized,
+            issues=issues,
+            llm_error=llm_error,
+        )
+
+    async def _authoritative_reask(
+        self,
+        message: str,
+        context_hint: str,
+        previous_candidate: PlanCandidate,
+    ) -> PlanCandidate:
+        raw_payload, llm_error = await self._request_llm_json(
+            system_prompt=self._authoritative_reask_prompt(),
+            user_payload={
+                "message": message,
+                "context_hint": context_hint,
+                "previous_payload": previous_candidate.raw_payload or {},
+                "validation_issues": list(previous_candidate.issues),
+                "capability_catalog": self._capability_catalog(),
+            },
+            max_tokens=1024,
+            contract_hint=self._task_plan_contract_hint(),
+            allow_repair=True,
+            allow_retry=False,
+            timeout_seconds=max(1, int(self.settings.qwen_intent_timeout_seconds)),
+        )
+        if raw_payload is None:
+            return previous_candidate
+        return self._build_plan_candidate(
+            source="qwen_authoritative_reask",
+            raw_payload=raw_payload,
+            llm_error=llm_error,
+            original_message=message,
+        )
+
+    async def _repair_missing_tasks_if_needed(
+        self,
+        candidate: PlanCandidate,
+        message: str,
+        context_hint: str,
+    ) -> PlanCandidate:
+        if candidate.normalized is None:
+            return candidate
+
+        tasks = candidate.normalized.get("tasks")
+        if not isinstance(tasks, list):
+            return candidate
+
+        repaired_any = False
+        repaired_tasks: list[dict[str, Any]] = []
+        for task in tasks:
+            if not isinstance(task, dict):
+                repaired_tasks.append(task)
+                continue
+
+            normalized = task.get("normalized")
+            if not isinstance(normalized, dict):
+                repaired_tasks.append(task)
+                continue
+
+            capability_id = self._resolve_capability_id(normalized)
+            if capability_id == CapabilityId.UNKNOWN:
+                repaired_tasks.append(task)
+                continue
+
+            payload_raw = normalized.get("payload")
+            payload = self._finalize_llm_payload(
+                capability_id=capability_id,
+                payload=dict(payload_raw) if isinstance(payload_raw, dict) else {},
+            )
+            missing_fields = self._merge_missing_fields(
+                self._normalize_missing_fields(normalized.get("missing_fields")),
+                self._execution_missing_fields(capability_id=capability_id, payload=payload),
+            )
+            if not missing_fields:
+                repaired_tasks.append(task)
+                continue
+
+            repaired_task = await self._repair_single_task_with_llm(
+                message=message,
+                context_hint=context_hint,
+                task=task,
+                capability_id=capability_id,
+                missing_fields=missing_fields,
+            )
+            repaired_any = repaired_any or repaired_task is not task
+            repaired_tasks.append(repaired_task)
+
+        if not repaired_any:
+            return candidate
+
+        normalized_plan = dict(candidate.normalized)
+        normalized_plan["tasks"] = repaired_tasks
+        raw_payload = dict(candidate.raw_payload or {})
+        raw_payload["_task_repairs_applied"] = True
+        issues = tuple(self._validate_request_plan_payload(normalized_plan))
+        return PlanCandidate(
+            source=candidate.source,
+            raw_payload=raw_payload,
+            normalized=normalized_plan,
+            issues=issues,
+            llm_error=candidate.llm_error,
+        )
+
+    async def _repair_single_task_with_llm(
+        self,
+        message: str,
+        context_hint: str,
+        task: dict[str, Any],
+        capability_id: CapabilityId,
+        missing_fields: list[str],
+    ) -> dict[str, Any]:
+        normalized = task.get("normalized")
+        if not isinstance(normalized, dict):
+            return task
+
+        raw_payload, _ = await self._request_llm_json(
+            system_prompt=self._task_repair_prompt(),
+            user_payload={
+                "message": message,
+                "context_hint": context_hint,
+                "task_raw_message": task.get("raw_message", ""),
+                "capability_id": capability_id.value,
+                "payload": normalized.get("payload") if isinstance(normalized.get("payload"), dict) else {},
+                "missing_fields": missing_fields,
+                "capability_schema": self._capability_schema(capability_id),
+            },
+            max_tokens=512,
+            contract_hint=self._single_task_contract_hint(capability_id),
+            allow_repair=True,
+            allow_retry=False,
+            timeout_seconds=max(1, int(self.settings.qwen_intent_timeout_seconds)),
+        )
+        if raw_payload is None:
+            return task
+
+        repaired_raw = dict(raw_payload)
+        repaired_raw.setdefault("capability_id", capability_id.value)
+        repaired_raw.setdefault("c", capability_id.value)
+        normalized_repair = self._normalize_intent_payload(repaired_raw)
+        if normalized_repair is None or self._resolve_capability_id(normalized_repair) != capability_id:
+            return task
+
+        original_missing_count = len(missing_fields)
+        original_payload_raw = normalized.get("payload")
+        original_payload = self._finalize_llm_payload(
+            capability_id=capability_id,
+            payload=dict(original_payload_raw) if isinstance(original_payload_raw, dict) else {},
+        )
+        repaired_payload_raw = normalized_repair.get("payload")
+        repaired_payload = self._finalize_llm_payload(
+            capability_id=capability_id,
+            payload=dict(repaired_payload_raw) if isinstance(repaired_payload_raw, dict) else {},
+        )
+        repaired_missing = self._execution_missing_fields(capability_id=capability_id, payload=repaired_payload)
+        full_repaired_missing = self._merge_missing_fields(
+            self._normalize_missing_fields(normalized_repair.get("missing_fields")),
+            repaired_missing,
+        )
+        original_missing = set(missing_fields)
+        repaired_missing_set = set(full_repaired_missing)
+        if repaired_missing_set - original_missing:
+            return task
+        if len(full_repaired_missing) >= original_missing_count:
+            return task
+
+        repaired_task = dict(task)
+        repaired_task["normalized"] = dict(
+            normalized_repair,
+            payload=repaired_payload,
+            missing_fields=full_repaired_missing,
+        )
+        repaired_task["raw_llm_payload"] = repaired_raw
+        return repaired_task
+
+    async def _build_decision_from_request_plan(
+        self,
+        normalized: dict[str, object],
+        raw_payload: dict[str, object],
+        parse_source: str,
+    ) -> IntentDecision:
         entries = normalized["tasks"]
         decisions: list[IntentDecision] = []
         clauses: list[str] = []
@@ -105,7 +342,7 @@ class IntentService:
                 normalized=entry["normalized"],
                 raw_llm_payload=entry["raw_llm_payload"],
                 raw_message=entry["raw_message"],
-                parse_source="qwen_plan",
+                parse_source=parse_source,
             )
             decisions.append(decision)
             clauses.append(entry["raw_message"])
@@ -114,7 +351,7 @@ class IntentService:
         if not executable_actions:
             return self._build_unknown_decision(
                 reason=str(normalized["reason"]).strip() or "no executable action found in request plan",
-                parse_source="qwen_plan",
+                parse_source=parse_source,
                 action_plan=list(normalized["action_plan"]),
                 raw_llm_payload=raw_payload,
             )
@@ -123,7 +360,7 @@ class IntentService:
             decision = decisions[0]
             return decision.model_copy(
                 update={
-                    "parse_source": "qwen_plan",
+                    "parse_source": parse_source,
                     "raw_llm_payload": dict(raw_payload),
                     "task_clauses": clauses,
                 }
@@ -134,17 +371,18 @@ class IntentService:
             item.selected_executor == ExecutorType.CLI for item in decisions
         ) else ExecutorType.NONE
         action_plan = list(normalized["action_plan"]) or [
-            f"任务{index}: {clause[:40]}"
+            f"task {index}: {clause[:40]}"
             for index, clause in enumerate(clauses, start=1)
         ][:4]
         structured_command = self._build_multi_structured_command(clauses=clauses, decisions=decisions)
+        multi_parse_source = "qwen_multi_plan" if parse_source == "qwen_plan" else f"{parse_source}_multi"
 
         return IntentDecision(
             intent_type=IntentType.MULTI_TASK,
             reason=f"planned {len(executable_actions)} ordered tasks from one request",
             action_plan=action_plan,
             selected_executor=selected_executor,
-            parse_source="qwen_multi_plan",
+            parse_source=multi_parse_source,
             missing_fields=missing_fields,
             standard_action=executable_actions[0],
             planned_actions=[item.standard_action for item in decisions],
@@ -263,9 +501,6 @@ class IntentService:
             capability_value = str(self._pick_first(data, "intent_type", "i", default="")).strip()
 
         capability_id = self._to_capability_id(capability_value)
-        if capability_id == CapabilityId.IM_MESSAGE_SEND:
-            payload = self._normalize_message_payload(payload)
-
         normalized_payload = normalize_payload(capability_id, payload) if capability_id != CapabilityId.UNKNOWN else payload
         return {
             "capability_id": capability_id.value,
@@ -369,23 +604,15 @@ class IntentService:
             raw_llm_payload=dict(raw_llm_payload),
         )
 
-    @staticmethod
-    def _normalize_message_payload(payload: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "chat_hint": str(payload.get("chat_hint", payload.get("target", payload.get("recipient", "")))).strip(),
-            "chat_id": str(payload.get("chat_id", "")).strip(),
-            "user_id": str(payload.get("user_id", "")).strip(),
-            "text": str(payload.get("text", payload.get("message", payload.get("message_text", "")))).strip(),
-            "identity": str(payload.get("identity", "")).strip(),
-        }
-
     def _finalize_llm_payload(self, capability_id: CapabilityId, payload: dict[str, Any]) -> dict[str, object]:
         normalized = normalize_payload(capability_id, payload)
         normalized = self._coerce_payload_types(normalized)
-        if capability_id in BOT_IDENTITY_CAPABILITIES:
-            normalized["identity"] = self._normalize_identity(normalized.get("identity"), default_identity="bot")
-        elif capability_id in USER_IDENTITY_CAPABILITIES:
-            normalized["identity"] = self._normalize_identity(normalized.get("identity"), default_identity="user")
+        spec = get_capability_spec(capability_id)
+        if spec is not None and spec.default_identity:
+            normalized["identity"] = self._normalize_identity(
+                normalized.get("identity"),
+                default_identity=spec.default_identity,
+            )
         return normalized
 
     def _coerce_payload_types(self, payload: dict[str, object]) -> dict[str, object]:
@@ -416,18 +643,59 @@ class IntentService:
             return payload
         return await self.recipient_resolver.resolve(payload=dict(payload))
 
+    def _validate_request_plan_payload(self, normalized: dict[str, object] | None) -> list[str]:
+        if normalized is None:
+            return ["plan is not a valid object"]
+
+        tasks = normalized.get("tasks")
+        if not isinstance(tasks, list) or not tasks:
+            return ["plan must contain at least one task"]
+
+        issues: list[str] = []
+        for index, task in enumerate(tasks, start=1):
+            if not isinstance(task, dict):
+                issues.append(f"task {index} is not an object")
+                continue
+
+            raw_message = str(task.get("raw_message", "")).strip()
+            if not raw_message:
+                issues.append(f"task {index} missing raw_message")
+
+            task_payload = task.get("normalized")
+            if not isinstance(task_payload, dict):
+                issues.append(f"task {index} missing normalized payload")
+                continue
+
+            capability_id = self._resolve_capability_id(task_payload)
+            if capability_id == CapabilityId.UNKNOWN:
+                issues.append(f"task {index} has unknown capability")
+                continue
+
+            spec = get_capability_spec(capability_id)
+            if spec is None:
+                issues.append(f"task {index} capability has no registry schema: {capability_id.value}")
+                continue
+
+            raw_llm_payload = task.get("raw_llm_payload")
+            raw_llm_payload = raw_llm_payload if isinstance(raw_llm_payload, dict) else {}
+            payload_raw = self._pick_first(raw_llm_payload, "payload", "p", "entities")
+            extra_fields = self._payload_fields_outside_schema(
+                spec=spec,
+                payload=dict(payload_raw) if isinstance(payload_raw, dict) else {},
+            )
+            if extra_fields:
+                joined = ", ".join(extra_fields)
+                issues.append(f"task {index} payload contains fields outside schema for {capability_id.value}: {joined}")
+        return issues
+
+    @staticmethod
+    def _payload_fields_outside_schema(spec: CapabilitySpec, payload: dict[str, object]) -> list[str]:
+        schema_fields = set(spec.payload_fields) | set(spec.aliases)
+        return sorted(str(field_name) for field_name in payload if str(field_name) not in schema_fields)
+
     @staticmethod
     def _execution_missing_fields(capability_id: CapabilityId, payload: dict[str, object]) -> list[str]:
-        missing = missing_required_fields(capability_id, payload)
-        if capability_id in MESSAGE_CAPABILITIES_WITH_TARGET:
-            has_target = any(str(payload.get(field_name, "")).strip() for field_name in ("chat_hint", "chat_id", "user_id"))
-            if not has_target:
-                missing.append("chat_hint")
-        if capability_id == CapabilityId.IM_MESSAGES_REPLY:
-            has_reply_target = any(str(payload.get(field_name, "")).strip() for field_name in ("message_id", "thread_id", "message_hint"))
-            if not has_reply_target:
-                missing.append("message_hint")
-        return IntentService._merge_missing_fields(missing)
+        return IntentService._merge_missing_fields(missing_execution_fields(capability_id, payload))
 
     def _build_unknown_decision(
         self,
@@ -470,50 +738,107 @@ class IntentService:
             "Do not rely on punctuation alone. Infer task boundaries from semantics, ordering words, and dependencies. "
             "If the user gives 3-4 actions in one sentence, keep all of them in order inside tasks. "
             "Never invent chat_id, user_id, message_id, thread_id, spreadsheet_token, doc token, or any opaque identifier. "
-            "Leave unknown strings empty and unknown arrays empty. "
-            "capability_id must be one of: "
-            "im.message_send, im.messages_reply, im.messages_search, im.chat_messages_list, im.chat_search, im.chat_create, "
-            "calendar.create, calendar.reschedule, calendar.agenda, calendar.freebusy, "
-            "docs.create, docs.update, docs.search, sheets.update, sheets.read, "
-            "contact.search, task.create, mail.send, base.record_create, unknown. "
-            "For im.message_send payload use: chat_hint, chat_id, user_id, text, identity. "
-            "For im.messages_reply payload use: message_id, thread_id, message_hint, text, reply_in_thread, identity. "
-            "For im.messages_search payload use: query, chat_hint, chat_id, sender_hint, start_time, end_time, limit, identity. "
-            "For im.chat_messages_list payload use: chat_hint, chat_id, user_id, start_time, end_time, limit, identity. "
-            "For im.chat_search payload use: query, member_hints, limit, identity. "
-            "For im.chat_create payload use: name, member_hints, description, identity. "
-            "For calendar.create payload use: title, start_time, end_time, attendees, location. "
-            "For calendar.reschedule payload use: event_hint, source_time, target_time. "
-            "For calendar.agenda payload use: time_range, user_hints. "
-            "For calendar.freebusy payload use: time_range, user_hints. "
-            "For docs.create payload use: title, content, folder_token. "
-            "For docs.update payload use: title, content, doc_token. "
-            "For docs.search payload use: query. "
-            "For sheets.update payload use: spreadsheet_token, sheet_id, cell, value. "
-            "For sheets.read payload use: spreadsheet_token, sheet_id, cell. "
-            "For contact.search payload use: query. "
-            "For task.create payload use: title, assignee_hints, due_time, description. "
-            "For mail.send payload use: subject, body, to_hints, cc, attachments. "
-            "For base.record_create payload use: base_hint, table_hint, record. "
+            "Leave unknown strings empty, unknown arrays empty, and unknown records empty. "
+            "Use only these capability schemas: "
+            f"{IntentService._capability_catalog_text()} "
             "If a required execution argument is missing, list it in missing_fields instead of guessing. "
-            "Extraction rules: "
-            "When the user says 'give X a message', 'send a message to X', 'tell X ...', or the Chinese forms '给X发消息', '发送消息给X', '跟X说', put X into payload.chat_hint. "
-            "When the user asks to search or list messages in one chat, keep that chat name in payload.chat_hint. "
-            "Do not drop recipient names from payload.chat_hint just because the id is unknown. "
-            "For task.create, keep the core task wording in payload.title; if there is a deadline, copy it into due_time but do not over-shorten title. "
-            "Keep each raw_message as a short natural-language clause that corresponds to one task and preserves the user's intended order."
+            "Do not drop recipient names from payload.chat_hint just because an id is unknown. "
+            "For user-visible names, descriptions, titles, messages, and queries, preserve the user wording in the matching schema field. "
+            "Keep each raw_message as a short natural-language clause that corresponds to one task and preserves the user intended order."
         )
 
     @staticmethod
     def _task_plan_contract_hint() -> str:
         return (
             '{"t":['
-            '{"m":"先给项目群发消息：今晚九点发布","c":"im.message_send",'
-            '"p":{"chat_hint":"项目群","chat_id":"","user_id":"","text":"今晚九点发布","identity":"user"},"miss":[]},'
-            '{"m":"然后创建文档，标题叫发布复盘","c":"docs.create",'
-            '"p":{"title":"发布复盘","content":"","folder_token":""},"miss":[]}'
+            '{"m":"send a status note to Alex","c":"im.message_send",'
+            '"p":{"chat_hint":"Alex","chat_id":"","user_id":"","text":"The rollout is ready.","identity":"user"},"miss":[]},'
+            '{"m":"create a follow-up document","c":"docs.create",'
+            '"p":{"title":"Rollout follow-up","content":"","folder_token":""},"miss":[]}'
             ']}'
         )
+
+    @staticmethod
+    def _authoritative_reask_prompt() -> str:
+        return (
+            "You are the authoritative validator and replanner for a Feishu automation agent. "
+            "The previous JSON did not satisfy the capability registry. "
+            "Re-read the original user request, validation issues, previous payload, and capability catalog. "
+            "Return one corrected JSON object only using the compact plan contract: top-level t array; each task has m, c, p, optional miss. "
+            "Use only registered capability IDs, keep task order, and keep payload keys inside each capability schema. "
+            "Do not invent opaque IDs or tokens. Put unresolved required fields in miss."
+        )
+
+    @staticmethod
+    def _task_repair_prompt() -> str:
+        return (
+            "You repair exactly one already-classified Feishu automation task. "
+            "Return one JSON object only for the same capability. "
+            "Use the given capability schema and original request to fill only fields that are supported by that schema. "
+            "If the missing value is not present in the user request or context, leave the field empty and keep it in miss. "
+            "Do not change the capability and do not invent opaque IDs or tokens."
+        )
+
+    @staticmethod
+    def _single_task_contract_hint(capability_id: CapabilityId) -> str:
+        schema = IntentService._capability_schema(capability_id)
+        payload = {str(field_name): "" for field_name in schema.get("payload_fields", [])}
+        for field_name in schema.get("array_fields", []):
+            payload[str(field_name)] = []
+        for field_name in schema.get("object_fields", []):
+            payload[str(field_name)] = {}
+        if "limit" in payload:
+            payload["limit"] = 20
+        return json.dumps(
+            {"c": capability_id.value, "p": payload, "miss": list(schema.get("required_fields", []))},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _capability_catalog() -> list[dict[str, object]]:
+        return [
+            IntentService._capability_schema(capability_id)
+            for capability_id in sorted(CAPABILITY_REGISTRY, key=lambda item: item.value)
+        ] + [{"capability_id": CapabilityId.UNKNOWN.value, "payload_fields": [], "required_fields": []}]
+
+    @staticmethod
+    def _capability_catalog_text() -> str:
+        return json.dumps(
+            IntentService._capability_catalog(),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+
+    @staticmethod
+    def _capability_schema(capability_id: CapabilityId) -> dict[str, object]:
+        spec = get_capability_spec(capability_id)
+        if spec is None:
+            return {
+                "capability_id": capability_id.value,
+                "payload_fields": [],
+                "required_fields": [],
+            }
+
+        return {
+            "capability_id": spec.capability_id.value,
+            "payload_fields": list(spec.payload_fields),
+            "required_fields": list(spec.required_fields),
+            "required_field_groups": [
+                {"representative": representative, "any_of": list(fields)}
+                for representative, fields in spec.required_field_groups
+            ],
+            "array_fields": [
+                field_name
+                for field_name in spec.payload_fields
+                if field_name.endswith("_hints") or field_name in {"attendees", "attachments", "cc"}
+            ],
+            "object_fields": [
+                field_name
+                for field_name in spec.payload_fields
+                if field_name in {"record"}
+            ],
+        }
 
     @staticmethod
     def _resolve_capability_id(normalized: dict[str, object]) -> CapabilityId:

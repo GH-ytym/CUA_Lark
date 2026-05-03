@@ -198,6 +198,12 @@ class LarkCliAdapter:
             return self._build_im_chat_search(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
         if invocation.tool_family == "lark-im" and invocation.operation == "chat_create":
             return self._build_im_chat_create(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-doc" and invocation.operation == "doc_create":
+            return self._build_doc_create(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-doc" and invocation.operation == "doc_update":
+            return self._build_doc_update(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-doc" and invocation.operation == "doc_search":
+            return self._build_doc_search(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
         raise ValueError(
             f"unsupported cli invocation: tool={invocation.tool_family}, operation={invocation.operation}"
         )
@@ -341,6 +347,69 @@ class LarkCliAdapter:
         description = str(arguments.get("description", "")).strip()
         if description:
             command.extend(["--description", description])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_doc_create(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        title = str(arguments.get("title", "")).strip()
+        if not title:
+            raise ValueError("missing title for lark-cli docs +create")
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
+        if identity not in {"bot", "user"}:
+            raise ValueError("identity must be bot or user")
+        command = [cli_bin, "docs", "+create", "--as", identity, "--title", title]
+        markdown = str(arguments.get("content", "")).strip()
+        if markdown:
+            command.extend(["--markdown", markdown])
+        folder_token = str(arguments.get("folder_token", "")).strip()
+        if folder_token:
+            command.extend(["--folder-token", folder_token])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_doc_update(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        doc_token = str(arguments.get("doc_token", "")).strip()
+        if not doc_token:
+            raise ValueError("missing doc_token for lark-cli docs +update")
+        markdown = str(arguments.get("content", "")).strip()
+        if not markdown:
+            raise ValueError("missing content for lark-cli docs +update")
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
+        if identity not in {"bot", "user"}:
+            raise ValueError("identity must be bot or user")
+        command = [
+            cli_bin,
+            "docs",
+            "+update",
+            "--as",
+            identity,
+            "--doc",
+            doc_token,
+            "--mode",
+            "append",
+            "--markdown",
+            markdown,
+        ]
+        new_title = str(arguments.get("title", "")).strip()
+        if new_title:
+            command.extend(["--new-title", new_title])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_doc_search(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        query = str(arguments.get("query", "")).strip()
+        if not query:
+            raise ValueError("missing query for lark-cli docs +search")
+        identity = str(arguments.get("identity", "user")).strip().lower() or "user"
+        if identity != "user":
+            raise ValueError("lark-cli docs +search requires user identity")
+        command = [cli_bin, "docs", "+search", "--as", identity, "--query", query]
         if dry_run:
             command.append("--dry-run")
         return command
