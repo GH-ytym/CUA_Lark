@@ -243,6 +243,7 @@ def test_orchestrator_multitask_runs_real_message_cli_path() -> None:
     assert "oc_proj" in captured_argv
     assert "--text" in captured_argv
     assert "今晚九点发布" in captured_argv
+    assert "--idempotency-key" in captured_argv
     first_step = response.planned_actions[0].execution_payload["steps"][0]
     assert "im +messages-send" in first_step["command"]
     assert "--chat-id oc_proj" in first_step["command"]

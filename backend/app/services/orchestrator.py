@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import hashlib
+import json
 from pathlib import Path
 import sys
 from typing import Any
@@ -99,7 +101,8 @@ class OrchestratorService:
             execution_summary = "未找到可执行的标准动作。"
         else:
             for item in task.planned_actions:
-                item_action = item.standard_action
+                item_action = self._prepare_action_for_execution(task=task, item=item)
+                item.standard_action = item_action
                 if self._is_cli_command_implemented(item_action):
                     task.status = ExecutionStatus.CLI_RUNNING
                     item.status = "cli_running"
@@ -513,6 +516,52 @@ class OrchestratorService:
         except Exception:  # noqa: BLE001
             return None
         return TriggerRuleEvaluator
+
+    @staticmethod
+    def _prepare_action_for_execution(task: OrchestrationTask, item: PlannedActionItem) -> StandardAction:
+        action = item.standard_action
+        if not OrchestratorService._requires_idempotency_key(action):
+            return action
+        payload = dict(action.payload)
+        if str(payload.get("idempotency_key", "")).strip():
+            return action
+        payload["idempotency_key"] = OrchestratorService._build_idempotency_key(
+            task_id=task.task_id,
+            order=item.order,
+            capability_id=action.capability_id.value,
+            payload=payload,
+        )
+        return action.model_copy(update={"payload": payload})
+
+    @staticmethod
+    def _requires_idempotency_key(action: StandardAction) -> bool:
+        return action.capability_id in {CapabilityId.IM_MESSAGE_SEND, CapabilityId.IM_MESSAGES_REPLY}
+
+    @staticmethod
+    def _build_idempotency_key(
+        task_id: str,
+        order: int,
+        capability_id: str,
+        payload: dict[str, object],
+    ) -> str:
+        stable_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"idempotency_key", "resolution_candidates", "resolution_method"}
+        }
+        serialized = json.dumps(
+            {
+                "task_id": task_id,
+                "order": order,
+                "capability_id": capability_id,
+                "payload": stable_payload,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:20]
+        return f"fsagent-{task_id[:8]}-{order}-{digest}"
 
     @staticmethod
     def _record_step(
