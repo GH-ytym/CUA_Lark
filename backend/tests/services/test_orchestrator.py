@@ -232,3 +232,205 @@ def test_should_trigger_cua_aligns_with_trigger_rule_evaluator() -> None:
         )
         is False
     )
+
+
+def test_orchestrator_multitask_success_auto_advances_in_order() -> None:
+    service = OrchestratorService()
+    payload_1 = {
+        "chat_hint": "梅家济",
+        "chat_id": "",
+        "user_id": "ou_mei",
+        "text": "mjj",
+        "resolution_status": "resolved",
+    }
+    payload_2 = {
+        "chat_hint": "刘海俊",
+        "chat_id": "",
+        "user_id": "ou_liu",
+        "text": "快写代码",
+        "resolution_status": "resolved",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        action_1 = StandardAction(
+            capability_id=CapabilityId.IM_MESSAGE_SEND,
+            payload=payload_1,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+        action_2 = StandardAction(
+            capability_id=CapabilityId.IM_MESSAGE_SEND,
+            payload=payload_2,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+        return IntentDecision(
+            intent_type=IntentType.MULTI_TASK,
+            reason="按顺序发送两条消息",
+            action_plan=["发给梅家济", "发给刘海俊"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_multi_plan",
+            standard_action=action_1,
+            structured_command={
+                "intent_type": IntentType.MULTI_TASK.value,
+                "tasks": [
+                    {"raw_message": "给梅家济发mjj", "capability_id": "im.message_send", "payload": payload_1},
+                    {"raw_message": "给刘海俊发快写代码", "capability_id": "im.message_send", "payload": payload_2},
+                ],
+            },
+            planned_actions=[action_1, action_2],
+            task_clauses=["给梅家济发mjj", "给刘海俊发快写代码"],
+        )
+
+    execute_calls: list[dict[str, object]] = []
+
+    def fake_execute_action(*_: object, **kwargs: object) -> ExecutorResult:
+        action = kwargs["action"]
+        assert isinstance(action, StandardAction)
+        execute_calls.append(dict(action.payload))
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="executed 1 cli invocation(s)",
+            payload={"domain": "message", "dry_run": False, "steps": [{"exit_code": 0}], "error": None},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("给梅家济发mjj，然后给刘海俊发快写代码")))
+
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert len(execute_calls) == 2
+    assert execute_calls[0]["text"] == "mjj"
+    assert execute_calls[1]["text"] == "快写代码"
+    assert str(execute_calls[0]["idempotency_key"]).startswith("fsagent-")
+    assert str(execute_calls[1]["idempotency_key"]).startswith("fsagent-")
+    assert execute_calls[0]["idempotency_key"] != execute_calls[1]["idempotency_key"]
+
+
+def test_orchestrator_cli_failure_does_not_retry_and_hands_off_once_to_cua() -> None:
+    service = OrchestratorService()
+    payload = {
+        "chat_hint": "项目群",
+        "chat_id": "oc_proj",
+        "user_id": "",
+        "text": "今晚发布",
+        "resolution_status": "resolved",
+    }
+    cua_calls: list[dict[str, object]] = []
+    cli_call_count = 0
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return decision(payload)
+
+    def fake_execute_action(*_: object, **__: object) -> ExecutorResult:
+        nonlocal cli_call_count
+        cli_call_count += 1
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=False,
+            status=ExecutionStatus.CLI_FAILED,
+            summary="cli command failed",
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
+            payload={
+                "domain": "message",
+                "dry_run": False,
+                "steps": [{"exit_code": 2}],
+                "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"},
+            },
+        )
+
+    def fake_cua_execute_fallback(*_: object, **kwargs: object) -> ExecutorResult:
+        cua_calls.append({"cli_error_code": kwargs.get("cli_error_code"), "raw_message": kwargs.get("raw_message")})
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback", "cua_response": {"success": True}},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request()))
+
+    assert cli_call_count == 1
+    assert len(cua_calls) == 1
+    assert cua_calls[0]["cli_error_code"] == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert response.cua_should_trigger is True
+    assert response.execution_status == ExecutionStatus.COMPLETED
+
+
+def test_orchestrator_docs_failure_reuses_existing_fallback_flow() -> None:
+    service = OrchestratorService()
+    payload = {
+        "title": "小组消息跟进",
+        "content": "记录群消息重点",
+        "folder_token": "",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return IntentDecision(
+            intent_type=IntentType.DOC_CREATE,
+            reason="docs create request",
+            action_plan=["draft title", "create doc"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_plan",
+            standard_action=StandardAction(
+                capability_id=CapabilityId.DOC_CREATE,
+                payload=payload,
+                executor_hint=ExecutorType.CLI,
+                intent_type=IntentType.DOC_CREATE,
+            ),
+            structured_command={"intent_type": IntentType.DOC_CREATE.value, "payload": payload},
+        )
+
+    def fake_execute_action(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=False,
+            status=ExecutionStatus.CLI_FAILED,
+            summary="cli command failed",
+            error_code=int(UnifiedErrorCode.PERMISSION_DENIED),
+            payload={
+                "domain": "doc_sheet",
+                "dry_run": False,
+                "steps": [{"exit_code": 2}],
+                "error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED), "name": "permission_denied"},
+            },
+        )
+
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback", "cua_response": {"success": True}},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("创建文档《小组消息跟进》")))
+    task = service.get_task(response.task_id)
+
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cli_error_code == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert response.cua_should_trigger is True
+    assert response.execution_summary == "cua fallback executed"
+    assert response.execution_payload["mode"] == "cua_fallback"
+    assert task is not None
+    assert [step.name for step in task.steps] == [
+        "task_created",
+        "intent_parsed",
+        "cli_started",
+        "cli_finished",
+        "cua_started",
+        "cua_finished",
+    ]

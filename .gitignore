@@ -1,12 +1,21 @@
 # Python
 .venv/
+.envrc
+.python-version
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
 *.egg-info/
+build/
+dist/
 
 # Node
 frontend/node_modules/
@@ -14,19 +23,30 @@ frontend/dist/
 frontend/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # Env
 .env
 .env.local
+.env.*
 backend/.env
+backend/.env.*
 frontend/.env
+frontend/.env.*
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Logs
 *.log
+logs/
+runs/
 
 # Docs
 docs/
@@ -38,4 +58,9 @@ docs/
 
 cua/assets/
 src-cua
-runs
+backend/tests/results/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini

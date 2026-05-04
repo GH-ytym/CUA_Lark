@@ -28,3 +28,34 @@ def test_message_reply_requires_text_and_target_message() -> None:
     assert payload["text"] == "收到"
     assert payload["message_id"] == ""
     assert missing_required_fields(CapabilityId.IM_MESSAGES_REPLY, payload) == []
+
+
+def test_doc_create_payload_aliases_are_normalized() -> None:
+    payload = normalize_payload(
+        CapabilityId.DOC_CREATE,
+        {"name": "小组消息跟进", "body": "记录群消息重点"},
+    )
+
+    assert payload["title"] == "小组消息跟进"
+    assert payload["content"] == "记录群消息重点"
+    assert payload["folder_token"] == ""
+    assert missing_required_fields(CapabilityId.DOC_CREATE, payload) == []
+
+
+def test_doc_update_requires_content_and_doc_token() -> None:
+    payload = normalize_payload(
+        CapabilityId.DOC_UPDATE,
+        {"title": "小组消息跟进", "body": "补充同步结论"},
+    )
+
+    assert payload["title"] == "小组消息跟进"
+    assert payload["content"] == "补充同步结论"
+    assert payload["doc_token"] == ""
+    assert missing_required_fields(CapabilityId.DOC_UPDATE, payload) == ["doc_token"]
+
+
+def test_doc_search_payload_aliases_are_normalized() -> None:
+    payload = normalize_payload(CapabilityId.DOC_SEARCH, {"keyword": "小组消息跟进"})
+
+    assert payload["query"] == "小组消息跟进"
+    assert missing_required_fields(CapabilityId.DOC_SEARCH, payload) == []
