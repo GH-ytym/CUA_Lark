@@ -61,6 +61,184 @@ def test_llm_contract_maps_main_capabilities(
         assert decision.standard_action.payload.get(key) == value
 
 
+def test_calendar_create_contract_resolves_attendees_to_cli_ids() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+    service.settings.intent_require_llm = True
+
+    async def fake_resolve(payload: dict[str, object]) -> dict[str, object]:
+        resolved = dict(payload)
+        if resolved.get("chat_hint") == "Alex":
+            resolved["user_id"] = "ou_alex"
+            resolved["chat_id"] = ""
+            resolved["resolution_status"] = "resolved"
+        return resolved
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "r": "create a calendar event",
+                    "a": ["extract event fields", "resolve attendees", "execute calendar cli"],
+                    "t": [
+                        {
+                            "m": "create project review with Alex tomorrow 15:00-16:00",
+                            "c": "calendar.create",
+                            "p": {
+                                "title": "Project review",
+                                "start_time": "2026-05-06T15:00:00+08:00",
+                                "end_time": "2026-05-06T16:00:00+08:00",
+                                "attendees": ["Alex"],
+                                "attendee_ids": [],
+                            },
+                            "miss": [],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("create project review with Alex tomorrow 15:00-16:00"))
+
+    assert decision.standard_action.capability_id == CapabilityId.CALENDAR_CREATE
+    assert decision.standard_action.payload["start_time"] == "2026-05-06T15:00:00+08:00"
+    assert decision.standard_action.payload["end_time"] == "2026-05-06T16:00:00+08:00"
+    assert decision.standard_action.payload["attendee_ids"] == ["ou_alex"]
+    assert decision.standard_action.payload["identity"] == "user"
+
+
+def test_calendar_agenda_contract_uses_absolute_time_range() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+    service.settings.intent_require_llm = True
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "r": "query agenda",
+                    "t": [
+                        {
+                            "m": "show tomorrow agenda",
+                            "c": "calendar.agenda",
+                            "p": {
+                                "start_time": "2026-05-06T00:00:00+08:00",
+                                "end_time": "2026-05-06T23:59:59+08:00",
+                                "format": "json",
+                            },
+                            "miss": [],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("show tomorrow agenda"))
+
+    assert decision.standard_action.capability_id == CapabilityId.CALENDAR_AGENDA
+    assert decision.standard_action.payload["start_time"] == "2026-05-06T00:00:00+08:00"
+    assert decision.standard_action.payload["end_time"] == "2026-05-06T23:59:59+08:00"
+    assert decision.standard_action.payload["identity"] == "user"
+
+
+def test_calendar_freebusy_contract_resolves_user_hint() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+    service.settings.intent_require_llm = True
+
+    async def fake_resolve(payload: dict[str, object]) -> dict[str, object]:
+        resolved = dict(payload)
+        if resolved.get("chat_hint") == "Alex":
+            resolved["user_id"] = "ou_alex"
+            resolved["chat_id"] = ""
+            resolved["resolution_status"] = "resolved"
+        return resolved
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "r": "query freebusy",
+                    "t": [
+                        {
+                            "m": "check whether Alex is free tomorrow afternoon",
+                            "c": "calendar.freebusy",
+                            "p": {
+                                "start_time": "2026-05-06T13:00:00+08:00",
+                                "end_time": "2026-05-06T18:00:00+08:00",
+                                "user_hints": ["Alex"],
+                                "format": "json",
+                            },
+                            "miss": [],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("check whether Alex is free tomorrow afternoon"))
+
+    assert decision.standard_action.capability_id == CapabilityId.CALENDAR_FREEBUSY
+    assert decision.standard_action.payload["user_id"] == "ou_alex"
+    assert decision.standard_action.payload["start_time"] == "2026-05-06T13:00:00+08:00"
+    assert decision.standard_action.payload["end_time"] == "2026-05-06T18:00:00+08:00"
+
+
+def test_calendar_reschedule_contract_keeps_structured_fields_without_event_id() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+    service.settings.intent_require_llm = True
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "r": "reschedule an event",
+                    "t": [
+                        {
+                            "m": "move the project review from tomorrow 15:00 to 16:00",
+                            "c": "calendar.reschedule",
+                            "p": {
+                                "event_hint": "Project review",
+                                "source_time": "2026-05-06T15:00:00+08:00",
+                                "target_time": "2026-05-06T16:00:00+08:00",
+                                "target_start_time": "2026-05-06T16:00:00+08:00",
+                                "target_end_time": "2026-05-06T17:00:00+08:00",
+                            },
+                            "miss": [],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("move the project review from tomorrow 15:00 to 16:00"))
+
+    assert decision.standard_action.capability_id == CapabilityId.CALENDAR_RESCHEDULE
+    assert decision.standard_action.payload["event_hint"] == "Project review"
+    assert decision.standard_action.payload["source_time"] == "2026-05-06T15:00:00+08:00"
+    assert decision.standard_action.payload["target_time"] == "2026-05-06T16:00:00+08:00"
+    assert decision.standard_action.payload["event_id"] == ""
+
+
 def test_llm_contract_supports_message_then_docs_sequence() -> None:
     service = IntentService()
     service.settings.dashscope_api_key = "test-key"

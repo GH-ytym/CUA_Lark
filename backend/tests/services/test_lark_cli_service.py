@@ -229,6 +229,209 @@ def test_doc_search_builds_cli_command() -> None:
     assert "--dry-run" in argv
 
 
+def test_calendar_create_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload={
+                "title": "项目复盘",
+                "start_time": "2026-05-06T15:00:00+08:00",
+                "end_time": "2026-05-06T16:00:00+08:00",
+                "attendee_ids": ["ou_mei", "oc_proj"],
+                "calendar_id": "primary",
+                "description": "复盘发布流程",
+                "rrule": "FREQ=WEEKLY;INTERVAL=1",
+                "identity": "user",
+            },
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "calendar", "+create", "--as"]
+    assert "--summary" in argv
+    assert "项目复盘" in argv
+    assert "--start" in argv
+    assert "2026-05-06T15:00:00+08:00" in argv
+    assert "--end" in argv
+    assert "2026-05-06T16:00:00+08:00" in argv
+    assert "--attendee-ids" in argv
+    assert "ou_mei,oc_proj" in argv
+    assert "--calendar-id" in argv
+    assert "--description" in argv
+    assert "--rrule" in argv
+    assert "--dry-run" in argv
+
+
+def test_calendar_agenda_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.CALENDAR_AGENDA,
+            payload={
+                "start_time": "2026-05-06T00:00:00+08:00",
+                "end_time": "2026-05-06T23:59:59+08:00",
+                "calendar_id": "primary",
+                "format": "json",
+                "identity": "user",
+            },
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "calendar", "+agenda", "--as"]
+    assert "--start" in argv
+    assert "--end" in argv
+    assert "--calendar-id" in argv
+    assert "--format" in argv
+    assert "--dry-run" in argv
+
+
+def test_calendar_freebusy_builds_cli_command() -> None:
+    service = LarkCliService()
+    plan = service.plan_action(
+        StandardAction(
+            capability_id=CapabilityId.CALENDAR_FREEBUSY,
+            payload={
+                "start_time": "2026-05-06T09:00:00+08:00",
+                "end_time": "2026-05-06T18:00:00+08:00",
+                "user_id": "ou_mei",
+                "format": "json",
+                "identity": "user",
+            },
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+    )
+
+    argv = service.adapter.build_command(plan.invocations[0], cli_bin="lark-cli", dry_run=True)
+
+    assert argv[:4] == ["lark-cli", "calendar", "+freebusy", "--as"]
+    assert "--start" in argv
+    assert "2026-05-06T09:00:00+08:00" in argv
+    assert "--end" in argv
+    assert "2026-05-06T18:00:00+08:00" in argv
+    assert "--user-id" in argv
+    assert "ou_mei" in argv
+    assert "--format" in argv
+    assert "--dry-run" in argv
+
+
+def test_execute_calendar_create_success(monkeypatch) -> None:
+    service = LarkCliService()
+
+    def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=["lark-cli", "calendar", "+create"],
+            returncode=0,
+            stdout=b'{"event_id":"evt_123"}',
+            stderr=b"",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload={
+                "title": "项目复盘",
+                "start_time": "2026-05-06T15:00:00+08:00",
+                "end_time": "2026-05-06T16:00:00+08:00",
+            },
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        ),
+        dry_run=True,
+    )
+
+    assert result.success is True
+    assert result.status == ExecutionStatus.COMPLETED
+    assert result.payload["domain"] == "calendar"
+    assert result.payload["steps"][0]["parsed"]["event_id"] == "evt_123"
+
+
+def test_calendar_create_requires_start_and_end() -> None:
+    service = LarkCliService()
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload={"title": "项目复盘", "start_time": "", "end_time": ""},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        ),
+        dry_run=True,
+    )
+
+    assert result.success is False
+    assert result.error_code == int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
+    assert result.payload["error"]["name"] == "result_invalid"
+
+
+def test_execute_calendar_create_timeout_returns_timeout(monkeypatch) -> None:
+    service = LarkCliService()
+    service.settings.lark_cli_timeout_seconds = 1
+
+    def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[bytes]:
+        raise subprocess.TimeoutExpired(cmd=["lark-cli", "calendar", "+create"], timeout=1, stderr=b"timeout")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload={
+                "title": "Project review",
+                "start_time": "2026-05-06T15:00:00+08:00",
+                "end_time": "2026-05-06T16:00:00+08:00",
+            },
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        ),
+        dry_run=True,
+    )
+
+    assert result.success is False
+    assert result.error_code == int(UnifiedErrorCode.TIMEOUT)
+    assert result.payload["domain"] == "calendar"
+    assert result.payload["error"]["name"] == "operation_timeout"
+
+
+def test_execute_calendar_create_non_zero_exit_maps_error_code(monkeypatch) -> None:
+    service = LarkCliService()
+
+    def fake_run(*_: object, **__: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=["lark-cli", "calendar", "+create"],
+            returncode=2,
+            stdout=b"",
+            stderr=b"permission denied",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload={
+                "title": "Project review",
+                "start_time": "2026-05-06T15:00:00+08:00",
+                "end_time": "2026-05-06T16:00:00+08:00",
+            },
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        ),
+        dry_run=True,
+    )
+
+    assert result.success is False
+    assert result.error_code == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert result.payload["domain"] == "calendar"
+    assert result.payload["steps"][0]["exit_code"] == 2
+
+
 def test_doc_update_requires_doc_token() -> None:
     service = LarkCliService()
     plan = service.plan_action(

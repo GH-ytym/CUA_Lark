@@ -204,6 +204,12 @@ class LarkCliAdapter:
             return self._build_doc_update(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
         if invocation.tool_family == "lark-doc" and invocation.operation == "doc_search":
             return self._build_doc_search(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-calendar" and invocation.operation == "calendar_create":
+            return self._build_calendar_create(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-calendar" and invocation.operation == "agenda":
+            return self._build_calendar_agenda(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
+        if invocation.tool_family == "lark-calendar" and invocation.operation == "freebusy":
+            return self._build_calendar_freebusy(invocation.arguments, cli_bin=cli_bin, dry_run=dry_run)
         raise ValueError(
             f"unsupported cli invocation: tool={invocation.tool_family}, operation={invocation.operation}"
         )
@@ -413,3 +419,97 @@ class LarkCliAdapter:
         if dry_run:
             command.append("--dry-run")
         return command
+
+    @staticmethod
+    def _build_calendar_create(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        title = str(arguments.get("title", "")).strip()
+        start_time = str(arguments.get("start_time", "")).strip()
+        end_time = str(arguments.get("end_time", "")).strip()
+        if not title:
+            raise ValueError("missing title for lark-cli calendar +create")
+        if not start_time:
+            raise ValueError("missing start_time for lark-cli calendar +create")
+        if not end_time:
+            raise ValueError("missing end_time for lark-cli calendar +create")
+        identity = LarkCliAdapter._identity(arguments, default="user")
+        command = [
+            cli_bin,
+            "calendar",
+            "+create",
+            "--as",
+            identity,
+            "--summary",
+            title,
+            "--start",
+            start_time,
+            "--end",
+            end_time,
+        ]
+        attendee_ids = LarkCliAdapter._join_ids(arguments.get("attendee_ids"))
+        if attendee_ids:
+            command.extend(["--attendee-ids", attendee_ids])
+        calendar_id = str(arguments.get("calendar_id", "")).strip()
+        if calendar_id:
+            command.extend(["--calendar-id", calendar_id])
+        description = str(arguments.get("description", "")).strip()
+        if description:
+            command.extend(["--description", description])
+        rrule = str(arguments.get("rrule", "")).strip()
+        if rrule:
+            command.extend(["--rrule", rrule])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_calendar_agenda(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        identity = LarkCliAdapter._identity(arguments, default="user")
+        command = [cli_bin, "calendar", "+agenda", "--as", identity]
+        start_time = str(arguments.get("start_time", "")).strip()
+        if start_time:
+            command.extend(["--start", start_time])
+        end_time = str(arguments.get("end_time", "")).strip()
+        if end_time:
+            command.extend(["--end", end_time])
+        calendar_id = str(arguments.get("calendar_id", "")).strip()
+        if calendar_id:
+            command.extend(["--calendar-id", calendar_id])
+        output_format = str(arguments.get("format", "")).strip()
+        if output_format:
+            command.extend(["--format", output_format])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _build_calendar_freebusy(arguments: dict[str, Any], cli_bin: str, dry_run: bool) -> list[str]:
+        identity = LarkCliAdapter._identity(arguments, default="user")
+        command = [cli_bin, "calendar", "+freebusy", "--as", identity]
+        start_time = str(arguments.get("start_time", "")).strip()
+        if start_time:
+            command.extend(["--start", start_time])
+        end_time = str(arguments.get("end_time", "")).strip()
+        if end_time:
+            command.extend(["--end", end_time])
+        user_id = str(arguments.get("user_id", "")).strip()
+        if user_id:
+            command.extend(["--user-id", user_id])
+        output_format = str(arguments.get("format", "")).strip()
+        if output_format:
+            command.extend(["--format", output_format])
+        if dry_run:
+            command.append("--dry-run")
+        return command
+
+    @staticmethod
+    def _identity(arguments: dict[str, Any], default: str) -> str:
+        identity = str(arguments.get("identity", default)).strip().lower() or default
+        if identity not in {"bot", "user"}:
+            raise ValueError("identity must be bot or user")
+        return identity
+
+    @staticmethod
+    def _join_ids(value: Any) -> str:
+        if isinstance(value, list):
+            return ",".join(str(item).strip() for item in value if str(item).strip())
+        return str(value or "").strip()

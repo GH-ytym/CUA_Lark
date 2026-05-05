@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     dashscope_api_key: str = ""
     qwen_chat_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-    qwen_model: str = "qwen3.6-max"
+    qwen_model: str = "qwen3.6-max-preview"
     qwen_timeout_seconds: int = 20
     qwen_intent_timeout_seconds: int = 20
     intent_require_llm: bool = False

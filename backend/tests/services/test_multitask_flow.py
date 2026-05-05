@@ -79,8 +79,11 @@ def test_intent_service_splits_multitask_request_in_order() -> None:
 
     async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
         payload = dict(kwargs["payload"])
-        if payload.get("chat_hint") == "梅家济":
+        if payload.get("text"):
             payload["user_id"] = "ou_mei"
+            payload["resolution_status"] = "resolved"
+        elif payload.get("chat_hint"):
+            payload["chat_id"] = "oc_project"
             payload["resolution_status"] = "resolved"
         return payload
 
@@ -113,7 +116,7 @@ def test_intent_service_splits_multitask_request_in_order() -> None:
     assert decision.structured_command["tasks"][3]["payload"]["cell"] == "A1"
 
 
-def test_orchestrator_executes_message_and_docs_and_keeps_other_domains_structured_only() -> None:
+def test_orchestrator_executes_message_docs_calendar_and_keeps_sheet_structured_only() -> None:
     service = OrchestratorService()
     service.intent_service.settings.dashscope_api_key = "test-key"
     service.intent_service.settings.intent_require_llm = True
@@ -121,8 +124,11 @@ def test_orchestrator_executes_message_and_docs_and_keeps_other_domains_structur
 
     async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
         payload = dict(kwargs["payload"])
-        if payload.get("chat_hint") == "梅家济":
+        if payload.get("text"):
             payload["user_id"] = "ou_mei"
+            payload["resolution_status"] = "resolved"
+        elif payload.get("chat_hint"):
+            payload["chat_id"] = "oc_project"
             payload["resolution_status"] = "resolved"
         return payload
 
@@ -175,16 +181,17 @@ def test_orchestrator_executes_message_and_docs_and_keeps_other_domains_structur
     assert [item.status for item in response.planned_actions] == [
         "completed",
         "completed",
-        "plan_only",
+        "completed",
         "plan_only",
     ]
     assert response.execution_status == ExecutionStatus.COMPLETED
     assert response.execution_payload["mode"] == "multi_task"
-    assert response.execution_payload["completed_count"] == 2
-    assert response.execution_payload["plan_only_count"] == 2
-    assert execute_calls == [CapabilityId.IM_MESSAGE_SEND, CapabilityId.DOC_CREATE]
+    assert response.execution_payload["completed_count"] == 3
+    assert response.execution_payload["plan_only_count"] == 1
+    assert execute_calls == [CapabilityId.IM_MESSAGE_SEND, CapabilityId.DOC_CREATE, CapabilityId.CALENDAR_CREATE]
     assert response.planned_actions[0].execution_payload["steps"][0]["exit_code"] == 0
     assert response.planned_actions[1].execution_payload["steps"][0]["exit_code"] == 0
+    assert response.planned_actions[2].execution_payload["steps"][0]["exit_code"] == 0
     assert response.planned_actions[2].standard_action.payload["start_time"] == "2026-05-03T15:00:00+08:00"
     assert response.planned_actions[3].standard_action.payload["value"] == "已发布"
     assert task is not None
@@ -195,12 +202,13 @@ def test_orchestrator_executes_message_and_docs_and_keeps_other_domains_structur
         "action_1_cli_finished",
         "action_2_cli_started",
         "action_2_cli_finished",
-        "action_3_planned_only",
+        "action_3_cli_started",
+        "action_3_cli_finished",
         "action_4_planned_only",
     ]
 
 
-def test_orchestrator_multitask_runs_real_message_and_docs_cli_path() -> None:
+def test_orchestrator_multitask_runs_real_message_docs_and_calendar_cli_path() -> None:
     service = OrchestratorService()
     service.intent_service.settings.dashscope_api_key = "test-key"
     service.intent_service.settings.intent_require_llm = True
@@ -208,8 +216,11 @@ def test_orchestrator_multitask_runs_real_message_and_docs_cli_path() -> None:
 
     async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
         payload = dict(kwargs["payload"])
-        if payload.get("chat_hint") == "梅家济":
+        if payload.get("text"):
             payload["user_id"] = "ou_mei"
+            payload["resolution_status"] = "resolved"
+        elif payload.get("chat_hint"):
+            payload["chat_id"] = "oc_project"
             payload["resolution_status"] = "resolved"
         return payload
 
@@ -223,6 +234,8 @@ def test_orchestrator_multitask_runs_real_message_and_docs_cli_path() -> None:
         stdout = b'{"ok":true,"message_id":"om_123"}'
         if len(captured_argvs) == 2:
             stdout = b'{"ok":true,"document":{"document_id":"doccn123","url":"https://example/doccn123"}}'
+        if len(captured_argvs) == 3:
+            stdout = b'{"ok":true,"event_id":"evt_123"}'
         return subprocess.CompletedProcess(
             args=argv,
             returncode=0,
@@ -250,9 +263,9 @@ def test_orchestrator_multitask_runs_real_message_and_docs_cli_path() -> None:
         subprocess.run = subprocess_run  # type: ignore[assignment]
 
     assert response.execution_status == ExecutionStatus.COMPLETED
-    assert response.execution_payload["completed_count"] == 2
-    assert response.execution_payload["plan_only_count"] == 2
-    assert len(captured_argvs) == 2
+    assert response.execution_payload["completed_count"] == 3
+    assert response.execution_payload["plan_only_count"] == 1
+    assert len(captured_argvs) == 3
     assert Path(captured_argvs[0][0]).name.lower() in {"lark-cli", "lark-cli.cmd"}
     assert captured_argvs[0][1:3] == ["im", "+messages-send"]
     assert "--user-id" in captured_argvs[0]
@@ -265,6 +278,15 @@ def test_orchestrator_multitask_runs_real_message_and_docs_cli_path() -> None:
     assert "小组消息跟进" in captured_argvs[1]
     assert "--markdown" in captured_argvs[1]
     assert "记录群消息重点" in captured_argvs[1]
+    assert captured_argvs[2][1:3] == ["calendar", "+create"]
+    assert "--summary" in captured_argvs[2]
+    assert "发布复盘会议" in captured_argvs[2]
+    assert "--start" in captured_argvs[2]
+    assert "2026-05-03T15:00:00+08:00" in captured_argvs[2]
+    assert "--end" in captured_argvs[2]
+    assert "2026-05-03T16:00:00+08:00" in captured_argvs[2]
+    assert "--attendee-ids" in captured_argvs[2]
+    assert "oc_project" in captured_argvs[2]
     first_step = response.planned_actions[0].execution_payload["steps"][0]
     assert "im +messages-send" in first_step["command"]
     assert "--user-id ou_mei" in first_step["command"]
@@ -272,7 +294,9 @@ def test_orchestrator_multitask_runs_real_message_and_docs_cli_path() -> None:
     second_step = response.planned_actions[1].execution_payload["steps"][0]
     assert "docs +create" in second_step["command"]
     assert second_step["parsed"]["document"]["document_id"] == "doccn123"
-    assert response.planned_actions[2].execution_payload["payload"]["title"] == "发布复盘会议"
+    third_step = response.planned_actions[2].execution_payload["steps"][0]
+    assert "calendar +create" in third_step["command"]
+    assert third_step["parsed"]["event_id"] == "evt_123"
     assert response.planned_actions[3].execution_payload["payload"]["value"] == "已发布"
 
 

@@ -24,3 +24,12 @@ class ExecutionDetailResponse(BaseModel):
     steps: list[TaskStep] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class CancelExecutionResponse(BaseModel):
+    """Response returned when a cancellation request is accepted or ignored."""
+
+    task_id: str
+    status: ExecutionStatus
+    canceled: bool
+    summary: str = ""

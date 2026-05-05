@@ -95,35 +95,41 @@ CAPABILITY_REGISTRY: dict[CapabilityId, CapabilitySpec] = {
         capability_id=CapabilityId.CALENDAR_CREATE,
         intent_type=IntentType.CALENDAR_RESCHEDULE,
         required_fields=("title", "start_time", "end_time"),
-        optional_fields=("attendees", "location", "description"),
+        optional_fields=("attendees", "attendee_ids", "calendar_id", "description", "location", "rrule", "identity"),
+        default_identity="user",
         cli_tool_family="lark-calendar",
-        cli_operation="event_create",
+        cli_operation="calendar_create",
+        aliases={"summary": "title", "start": "start_time", "end": "end_time", "recurrence": "rrule"},
     ),
     CapabilityId.CALENDAR_RESCHEDULE: CapabilitySpec(
         capability_id=CapabilityId.CALENDAR_RESCHEDULE,
         intent_type=IntentType.CALENDAR_RESCHEDULE,
         required_fields=("event_hint", "target_time"),
-        optional_fields=("source_time", "calendar_id"),
+        optional_fields=("source_time", "target_start_time", "target_end_time", "calendar_id", "event_id", "identity"),
+        default_identity="user",
         cli_tool_family="lark-calendar",
         cli_operation="event_reschedule",
+        aliases={"event": "event_hint", "start": "target_start_time", "end": "target_end_time"},
     ),
     CapabilityId.CALENDAR_AGENDA: CapabilitySpec(
         capability_id=CapabilityId.CALENDAR_AGENDA,
         intent_type=IntentType.CALENDAR_RESCHEDULE,
-        required_fields=("time_range",),
-        optional_fields=("user_hints",),
+        required_fields=tuple(),
+        optional_fields=("time_range", "start_time", "end_time", "calendar_id", "format", "identity"),
+        default_identity="user",
         cli_tool_family="lark-calendar",
         cli_operation="agenda",
-        aliases={"range": "time_range", "when": "time_range", "users": "user_hints"},
+        aliases={"range": "time_range", "when": "time_range", "start": "start_time", "end": "end_time"},
     ),
     CapabilityId.CALENDAR_FREEBUSY: CapabilitySpec(
         capability_id=CapabilityId.CALENDAR_FREEBUSY,
         intent_type=IntentType.CALENDAR_RESCHEDULE,
-        required_fields=("time_range",),
-        optional_fields=("user_hints",),
+        required_fields=tuple(),
+        optional_fields=("time_range", "start_time", "end_time", "user_hints", "user_id", "format", "identity"),
+        default_identity="user",
         cli_tool_family="lark-calendar",
         cli_operation="freebusy",
-        aliases={"range": "time_range", "when": "time_range", "users": "user_hints"},
+        aliases={"range": "time_range", "when": "time_range", "users": "user_hints", "start": "start_time", "end": "end_time"},
     ),
     CapabilityId.DOC_CREATE: CapabilitySpec(
         capability_id=CapabilityId.DOC_CREATE,
@@ -250,7 +256,7 @@ def missing_execution_fields(capability_id: CapabilityId, payload: dict[str, obj
 
 
 def _empty_value_for_field(field_name: str) -> object:
-    if field_name.endswith("_hints") or field_name in {"attendees", "attachments", "cc"}:
+    if field_name.endswith("_hints") or field_name.endswith("_ids") or field_name in {"attendees", "attachments", "cc"}:
         return []
     if field_name == "record":
         return {}

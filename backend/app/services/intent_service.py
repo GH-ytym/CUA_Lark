@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import json
 import re
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import httpx
 from pydantic import Field
@@ -28,7 +30,16 @@ MESSAGE_CAPABILITIES_WITH_TARGET = {
     for capability_id, spec in CAPABILITY_REGISTRY.items()
     if "chat_hint" in spec.payload_fields
 }
-LIST_FIELDS = {"member_hints", "attendees", "user_hints", "to_hints", "assignee_hints", "attachments", "cc"}
+LIST_FIELDS = {
+    "member_hints",
+    "attendees",
+    "attendee_ids",
+    "user_hints",
+    "to_hints",
+    "assignee_hints",
+    "attachments",
+    "cc",
+}
 
 
 @dataclass(frozen=True)
@@ -89,7 +100,11 @@ class IntentService:
         """Ask the model to plan the full request, including ordered multi-task output."""
         raw_payload, llm_error = await self._request_llm_json(
             system_prompt=self._task_plan_prompt(),
-            user_payload={"message": message, "context_hint": context_hint},
+            user_payload={
+                "message": message,
+                "context_hint": context_hint,
+                "current_time": self._current_time_hint(),
+            },
             max_tokens=1024,
             contract_hint=self._task_plan_contract_hint(),
             allow_repair=True,
@@ -169,6 +184,7 @@ class IntentService:
             user_payload={
                 "message": message,
                 "context_hint": context_hint,
+                "current_time": self._current_time_hint(),
                 "previous_payload": previous_candidate.raw_payload or {},
                 "validation_issues": list(previous_candidate.issues),
                 "capability_catalog": self._capability_catalog(),
@@ -274,6 +290,7 @@ class IntentService:
             user_payload={
                 "message": message,
                 "context_hint": context_hint,
+                "current_time": self._current_time_hint(),
                 "task_raw_message": task.get("raw_message", ""),
                 "capability_id": capability_id.value,
                 "payload": normalized.get("payload") if isinstance(normalized.get("payload"), dict) else {},
@@ -582,6 +599,7 @@ class IntentService:
         payload = dict(payload_raw) if isinstance(payload_raw, dict) else {}
         payload = self._finalize_llm_payload(capability_id=capability_id, payload=payload)
         payload = await self._resolve_recipient_if_needed(capability_id=capability_id, payload=payload)
+        payload = await self._resolve_calendar_entities_if_needed(capability_id=capability_id, payload=payload)
 
         missing_fields = self._merge_missing_fields(
             self._normalize_missing_fields(normalized.get("missing_fields")),
@@ -642,6 +660,73 @@ class IntentService:
         if capability_id not in MESSAGE_CAPABILITIES_WITH_TARGET:
             return payload
         return await self.recipient_resolver.resolve(payload=dict(payload))
+
+    async def _resolve_calendar_entities_if_needed(
+        self,
+        capability_id: CapabilityId,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        if capability_id == CapabilityId.CALENDAR_CREATE:
+            return await self._resolve_calendar_attendees(payload=payload)
+        if capability_id == CapabilityId.CALENDAR_FREEBUSY:
+            return await self._resolve_calendar_freebusy_user(payload=payload)
+        return payload
+
+    async def _resolve_calendar_attendees(self, payload: dict[str, object]) -> dict[str, object]:
+        resolved = dict(payload)
+        attendee_ids = self._normalize_id_list(resolved.get("attendee_ids"))
+        unresolved_names = [str(item).strip() for item in resolved.get("attendees", []) if str(item).strip()]
+        candidates: list[dict[str, object]] = []
+        unresolved_count = 0
+        for name in unresolved_names:
+            one = await self.recipient_resolver.resolve(
+                payload={"chat_hint": name, "chat_id": "", "user_id": "", "text": ""}
+            )
+            user_id = str(one.get("user_id", "")).strip()
+            chat_id = str(one.get("chat_id", "")).strip()
+            if user_id:
+                attendee_ids.append(user_id)
+                continue
+            if chat_id:
+                attendee_ids.append(chat_id)
+                continue
+            unresolved_count += 1
+            raw_candidates = one.get("resolution_candidates")
+            if isinstance(raw_candidates, list):
+                candidates.extend(item for item in raw_candidates if isinstance(item, dict))
+
+        resolved["attendee_ids"] = self._dedupe_list(attendee_ids)
+        if unresolved_count:
+            resolved["resolution_status"] = "needs_confirmation"
+            resolved["resolution_reason"] = "calendar_attendee_ambiguous" if candidates else "calendar_attendee_unresolved"
+            resolved["resolution_candidates"] = candidates[:3]
+        elif unresolved_names:
+            resolved["resolution_status"] = "resolved"
+            resolved["resolution_method"] = "calendar_recipient_resolver"
+        return resolved
+
+    async def _resolve_calendar_freebusy_user(self, payload: dict[str, object]) -> dict[str, object]:
+        resolved = dict(payload)
+        if str(resolved.get("user_id", "")).strip():
+            return resolved
+        hints = [str(item).strip() for item in resolved.get("user_hints", []) if str(item).strip()]
+        if not hints:
+            return resolved
+        one = await self.recipient_resolver.resolve(
+            payload={"chat_hint": hints[0], "chat_id": "", "user_id": "", "text": ""}
+        )
+        user_id = str(one.get("user_id", "")).strip()
+        if user_id:
+            resolved["user_id"] = user_id
+            resolved["resolution_status"] = "resolved"
+            resolved["resolution_method"] = "calendar_recipient_resolver"
+            return resolved
+        raw_candidates = one.get("resolution_candidates")
+        if isinstance(raw_candidates, list):
+            resolved["resolution_candidates"] = [item for item in raw_candidates if isinstance(item, dict)][:3]
+        resolved["resolution_status"] = "needs_confirmation"
+        resolved["resolution_reason"] = "calendar_user_ambiguous" if resolved.get("resolution_candidates") else "calendar_user_unresolved"
+        return resolved
 
     def _validate_request_plan_payload(self, normalized: dict[str, object] | None) -> list[str]:
         if normalized is None:
@@ -738,6 +823,12 @@ class IntentService:
             "Do not rely on punctuation alone. Infer task boundaries from semantics, ordering words, and dependencies. "
             "If the user gives 3-4 actions in one sentence, keep all of them in order inside tasks. "
             "Never invent chat_id, user_id, message_id, thread_id, spreadsheet_token, doc token, or any opaque identifier. "
+            "Use current_time from the user payload as the reference for relative dates and times. "
+            "For calendar.create, calendar.agenda, and calendar.freebusy, convert relative dates and times into absolute "
+            "ISO 8601 strings with timezone offset; default timezone is Asia/Shanghai. "
+            "Do not pass vague calendar times such as tomorrow, afternoon, or next week in start_time/end_time. "
+            "For calendar.create, put participant names in attendees and leave attendee_ids empty unless the user supplied an opaque ou_/oc_/omm_ id. "
+            "For calendar.freebusy, put the queried person's name in user_hints and leave user_id empty unless the user supplied an opaque ou_ id. "
             "Leave unknown strings empty, unknown arrays empty, and unknown records empty. "
             "Use only these capability schemas: "
             f"{IntentService._capability_catalog_text()} "
@@ -754,7 +845,10 @@ class IntentService:
             '{"m":"send a status note to Alex","c":"im.message_send",'
             '"p":{"chat_hint":"Alex","chat_id":"","user_id":"","text":"The rollout is ready.","identity":"user"},"miss":[]},'
             '{"m":"create a follow-up document","c":"docs.create",'
-            '"p":{"title":"Rollout follow-up","content":"","folder_token":""},"miss":[]}'
+            '"p":{"title":"Rollout follow-up","content":"","folder_token":""},"miss":[]},'
+            '{"m":"schedule the review tomorrow at 3pm","c":"calendar.create",'
+            '"p":{"title":"Review","start_time":"2026-05-06T15:00:00+08:00","end_time":"2026-05-06T16:00:00+08:00",'
+            '"attendees":["Alex"],"attendee_ids":[],"identity":"user"},"miss":[]}'
             ']}'
         )
 
@@ -831,7 +925,9 @@ class IntentService:
             "array_fields": [
                 field_name
                 for field_name in spec.payload_fields
-                if field_name.endswith("_hints") or field_name in {"attendees", "attachments", "cc"}
+                if field_name.endswith("_hints")
+                or field_name.endswith("_ids")
+                or field_name in {"attendees", "attachments", "cc"}
             ],
             "object_fields": [
                 field_name
@@ -846,79 +942,36 @@ class IntentService:
 
     @staticmethod
     def _to_capability_id(value: str) -> CapabilityId:
-        raw = value.strip().lower()
-        alias = {item.value: item for item in CapabilityId}
-        alias.update(
-            {
-                "message.send": CapabilityId.IM_MESSAGE_SEND,
-                "send.message": CapabilityId.IM_MESSAGE_SEND,
-                "message.reply": CapabilityId.IM_MESSAGES_REPLY,
-                "messages.reply": CapabilityId.IM_MESSAGES_REPLY,
-                "message.search": CapabilityId.IM_MESSAGES_SEARCH,
-                "messages.search": CapabilityId.IM_MESSAGES_SEARCH,
-                "chat.messages.list": CapabilityId.IM_CHAT_MESSAGES_LIST,
-                "chat.search": CapabilityId.IM_CHAT_SEARCH,
-                "chat.create": CapabilityId.IM_CHAT_CREATE,
-                "calendar.create": CapabilityId.CALENDAR_CREATE,
-                "calendar.reschedule": CapabilityId.CALENDAR_RESCHEDULE,
-                "calendar.agenda": CapabilityId.CALENDAR_AGENDA,
-                "calendar.freebusy": CapabilityId.CALENDAR_FREEBUSY,
-                "doc.create": CapabilityId.DOC_CREATE,
-                "docs.create": CapabilityId.DOC_CREATE,
-                "doc.update": CapabilityId.DOC_UPDATE,
-                "docs.update": CapabilityId.DOC_UPDATE,
-                "doc.search": CapabilityId.DOC_SEARCH,
-                "docs.search": CapabilityId.DOC_SEARCH,
-                "sheet.update": CapabilityId.SHEET_UPDATE,
-                "sheets.update": CapabilityId.SHEET_UPDATE,
-                "sheet.read": CapabilityId.SHEET_READ,
-                "sheets.read": CapabilityId.SHEET_READ,
-                "contact.search": CapabilityId.CONTACT_SEARCH,
-                "task.create": CapabilityId.TASK_CREATE,
-                "mail.send": CapabilityId.MAIL_SEND,
-                "base.record.create": CapabilityId.BASE_RECORD_CREATE,
-                "base.record_create": CapabilityId.BASE_RECORD_CREATE,
-            }
-        )
-        candidates = (
-            raw,
-            raw.replace("-", "."),
-            raw.replace("_", "."),
-            raw.replace("-", "_"),
-        )
-        for candidate in candidates:
-            resolved = alias.get(candidate)
-            if resolved is not None:
-                return resolved
+        normalized = value.strip().lower().replace("-", ".")
+        aliases = {
+            "message.send": "im.message_send",
+            "send.message": "im.message_send",
+            "message.reply": "im.messages_reply",
+            "messages.reply": "im.messages_reply",
+            "message.search": "im.messages_search",
+            "messages.search": "im.messages_search",
+            "chat.messages.list": "im.chat_messages_list",
+            "chat.search": "im.chat_search",
+            "chat.create": "im.chat_create",
+            "doc.create": "docs.create",
+            "doc.update": "docs.update",
+            "doc.search": "docs.search",
+            "sheet.update": "sheets.update",
+            "sheet.read": "sheets.read",
+            "base.record.create": "base.record_create",
+        }
+        compact = normalized.replace("_", ".")
+        for candidate in (normalized, aliases.get(normalized, ""), compact, aliases.get(compact, "")):
+            try:
+                return CapabilityId(candidate)
+            except ValueError:
+                continue
         return CapabilityId.UNKNOWN
 
     @staticmethod
     def _intent_for_capability(capability_id: CapabilityId) -> IntentType:
-        if capability_id in {
-            CapabilityId.IM_MESSAGE_SEND,
-            CapabilityId.IM_MESSAGES_REPLY,
-            CapabilityId.IM_MESSAGES_SEARCH,
-            CapabilityId.IM_CHAT_MESSAGES_LIST,
-            CapabilityId.IM_CHAT_SEARCH,
-            CapabilityId.IM_CHAT_CREATE,
-            CapabilityId.CONTACT_SEARCH,
-            CapabilityId.TASK_CREATE,
-            CapabilityId.MAIL_SEND,
-            CapabilityId.BASE_RECORD_CREATE,
-        }:
-            return IntentType.MESSAGE_SEND
-        if capability_id in {
-            CapabilityId.CALENDAR_CREATE,
-            CapabilityId.CALENDAR_RESCHEDULE,
-            CapabilityId.CALENDAR_AGENDA,
-            CapabilityId.CALENDAR_FREEBUSY,
-        }:
-            return IntentType.CALENDAR_RESCHEDULE
-        if capability_id in {CapabilityId.DOC_CREATE, CapabilityId.DOC_UPDATE, CapabilityId.DOC_SEARCH}:
-            return IntentType.DOC_CREATE
-        if capability_id in {CapabilityId.SHEET_UPDATE, CapabilityId.SHEET_READ}:
-            return IntentType.SHEET_UPDATE
-        return IntentType.UNKNOWN
+        spec = get_capability_spec(capability_id)
+        return spec.intent_type if spec is not None else IntentType.UNKNOWN
 
     @staticmethod
     def _executor_for(capability_id: CapabilityId) -> ExecutorType:
@@ -949,6 +1002,27 @@ class IntentService:
                 if normalized and normalized not in merged:
                     merged.append(normalized)
         return merged
+
+    @staticmethod
+    def _normalize_id_list(value: object) -> list[str]:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        text = str(value or "").strip()
+        if not text:
+            return []
+        return [item.strip() for item in text.split(",") if item.strip()]
+
+    @staticmethod
+    def _dedupe_list(values: list[str]) -> list[str]:
+        deduped: list[str] = []
+        for value in values:
+            if value not in deduped:
+                deduped.append(value)
+        return deduped
+
+    @staticmethod
+    def _current_time_hint() -> str:
+        return datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
 
     @staticmethod
     def _pick_first(data: dict[str, object], *keys: str, default: object = None) -> object:

@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
-from app.domain.models import ExecutorResult
+from app.domain.models import ExecutorResult, OrchestrationTask
 from app.main import create_app
 from app.services.intent_service import IntentDecision
 from shared.error_codes import UnifiedErrorCode
@@ -93,3 +93,38 @@ def test_get_execution_detail_returns_404_for_unknown_task() -> None:
 
     assert response.status_code == 404
     assert response.json()["detail"] == "task not found: not-found"
+
+
+def test_cancel_execution_marks_non_terminal_task_canceled() -> None:
+    from app.api.routes import agent
+
+    task = OrchestrationTask(session_id="s-cancel", user_id="u1", raw_message="pending task")
+    task.status = ExecutionStatus.QUEUED
+    agent.orchestrator_service._tasks[task.task_id] = task  # type: ignore[attr-defined]
+
+    client = TestClient(create_app())
+    response = client.post(f"/api/executions/{task.task_id}/cancel")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["task_id"] == task.task_id
+    assert data["status"] == "canceled"
+    assert data["canceled"] is True
+    assert agent.orchestrator_service.get_task(task.task_id).status == ExecutionStatus.CANCELED
+
+
+def test_cancel_execution_does_not_rewrite_completed_task() -> None:
+    from app.api.routes import agent
+
+    task = OrchestrationTask(session_id="s-done", user_id="u1", raw_message="completed task")
+    task.status = ExecutionStatus.COMPLETED
+    agent.orchestrator_service._tasks[task.task_id] = task  # type: ignore[attr-defined]
+
+    client = TestClient(create_app())
+    response = client.post(f"/api/executions/{task.task_id}/cancel")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "completed"
+    assert data["canceled"] is False
+    assert agent.orchestrator_service.get_task(task.task_id).status == ExecutionStatus.COMPLETED

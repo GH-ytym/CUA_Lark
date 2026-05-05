@@ -434,3 +434,297 @@ def test_orchestrator_docs_failure_reuses_existing_fallback_flow() -> None:
         "cua_started",
         "cua_finished",
     ]
+
+
+def test_orchestrator_executes_calendar_create_cli() -> None:
+    service = OrchestratorService()
+    payload = {
+        "title": "Project review",
+        "start_time": "2026-05-06T15:00:00+08:00",
+        "end_time": "2026-05-06T16:00:00+08:00",
+        "attendee_ids": ["ou_alex"],
+        "identity": "user",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        action = StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload=payload,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+        return IntentDecision(
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+            reason="calendar create request",
+            action_plan=["extract fields", "create calendar event"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_plan",
+            standard_action=action,
+            planned_actions=[action],
+            structured_command={"intent_type": IntentType.CALENDAR_RESCHEDULE.value, "payload": payload},
+        )
+
+    execute_calls: list[StandardAction] = []
+
+    def fake_execute_action(*_: object, **kwargs: object) -> ExecutorResult:
+        action = kwargs["action"]
+        assert isinstance(action, StandardAction)
+        execute_calls.append(action)
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="executed 1 cli invocation(s)",
+            payload={
+                "domain": "calendar",
+                "dry_run": False,
+                "steps": [{"exit_code": 0, "parsed": {"event_id": "evt_123"}}],
+                "error": None,
+            },
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("create project review tomorrow at 15:00")))
+    task = service.get_task(response.task_id)
+
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.standard_action.capability_id == CapabilityId.CALENDAR_CREATE
+    assert execute_calls[0].capability_id == CapabilityId.CALENDAR_CREATE
+    assert response.execution_payload["domain"] == "calendar"
+    assert task is not None
+    assert [step.name for step in task.steps] == ["task_created", "intent_parsed", "cli_started", "cli_finished"]
+
+
+def test_orchestrator_calendar_reschedule_without_event_id_stays_structured_only() -> None:
+    service = OrchestratorService()
+    payload = {
+        "event_hint": "Project review",
+        "source_time": "2026-05-06T15:00:00+08:00",
+        "target_time": "2026-05-06T16:00:00+08:00",
+        "target_start_time": "2026-05-06T16:00:00+08:00",
+        "target_end_time": "2026-05-06T17:00:00+08:00",
+        "event_id": "",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        action = StandardAction(
+            capability_id=CapabilityId.CALENDAR_RESCHEDULE,
+            payload=payload,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+        return IntentDecision(
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+            reason="calendar reschedule request",
+            action_plan=["extract event hint", "hold for safe event lookup"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_plan",
+            standard_action=action,
+            planned_actions=[action],
+            structured_command={"intent_type": IntentType.CALENDAR_RESCHEDULE.value, "payload": payload},
+        )
+
+    def should_not_execute(*_: object, **__: object) -> ExecutorResult:
+        raise AssertionError("calendar.reschedule without event_id should stay structured-only")
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = should_not_execute  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("move project review to 16:00")))
+
+    assert response.execution_status == ExecutionStatus.QUEUED
+    assert response.execution_payload["mode"] == "structured_only"
+    assert response.execution_payload["capability_id"] == CapabilityId.CALENDAR_RESCHEDULE.value
+
+
+def test_orchestrator_retries_transient_cli_failure_then_succeeds() -> None:
+    service = OrchestratorService()
+    payload = {
+        "title": "Project review",
+        "start_time": "2026-05-06T15:00:00+08:00",
+        "end_time": "2026-05-06T16:00:00+08:00",
+    }
+    cli_call_count = 0
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        action = StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload=payload,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+        return IntentDecision(
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+            reason="calendar create request",
+            action_plan=["create calendar event"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_plan",
+            standard_action=action,
+            planned_actions=[action],
+            structured_command={"intent_type": IntentType.CALENDAR_RESCHEDULE.value, "payload": payload},
+        )
+
+    def fake_execute_action(*_: object, **__: object) -> ExecutorResult:
+        nonlocal cli_call_count
+        cli_call_count += 1
+        if cli_call_count == 1:
+            return ExecutorResult(
+                executor=ExecutorType.CLI,
+                success=False,
+                status=ExecutionStatus.CLI_FAILED,
+                summary="cli execution timeout: 30s",
+                error_code=int(UnifiedErrorCode.TIMEOUT),
+                payload={
+                    "domain": "calendar",
+                    "dry_run": False,
+                    "steps": [],
+                    "error": {"code": int(UnifiedErrorCode.TIMEOUT), "name": "operation_timeout"},
+                },
+            )
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="executed 1 cli invocation(s)",
+            payload={"domain": "calendar", "dry_run": False, "steps": [{"exit_code": 0}], "error": None},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("create project review tomorrow at 15:00")))
+
+    assert cli_call_count == 2
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cli_error_code is None
+
+
+def test_orchestrator_blocks_calendar_confirmation_before_cli() -> None:
+    service = OrchestratorService()
+    payload = {
+        "title": "Project review",
+        "start_time": "2026-05-06T15:00:00+08:00",
+        "end_time": "2026-05-06T16:00:00+08:00",
+        "attendees": ["Alex"],
+        "attendee_ids": [],
+        "resolution_status": "needs_confirmation",
+        "resolution_candidates": [
+            {"name": "Alex Chen", "entity_type": "contact", "entity_id": "ou_alex", "score": 0.8},
+        ],
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        action = StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload=payload,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+        return IntentDecision(
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+            reason="calendar create request needs attendee confirmation",
+            action_plan=["resolve attendee"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_plan",
+            standard_action=action,
+            planned_actions=[action],
+            structured_command={"intent_type": IntentType.CALENDAR_RESCHEDULE.value, "payload": payload},
+        )
+
+    def should_not_execute(*_: object, **__: object) -> ExecutorResult:
+        raise AssertionError("calendar create should not run before attendee confirmation")
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = should_not_execute  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("create project review with Alex")))
+
+    assert response.needs_confirmation is True
+    assert response.execution_status == ExecutionStatus.QUEUED
+    assert response.resolution_candidates[0].entity_id == "ou_alex"
+
+
+def test_orchestrator_multitask_message_doc_calendar_executes_in_order() -> None:
+    service = OrchestratorService()
+    message_payload = {
+        "chat_hint": "Alex",
+        "chat_id": "",
+        "user_id": "ou_alex",
+        "text": "Reminder sent.",
+        "resolution_status": "resolved",
+    }
+    doc_payload = {"title": "Review notes", "content": "Agenda", "folder_token": ""}
+    calendar_payload = {
+        "title": "Project review",
+        "start_time": "2026-05-06T15:00:00+08:00",
+        "end_time": "2026-05-06T16:00:00+08:00",
+        "attendee_ids": ["ou_alex"],
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        action_1 = StandardAction(
+            capability_id=CapabilityId.IM_MESSAGE_SEND,
+            payload=message_payload,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        )
+        action_2 = StandardAction(
+            capability_id=CapabilityId.DOC_CREATE,
+            payload=doc_payload,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.DOC_CREATE,
+        )
+        action_3 = StandardAction(
+            capability_id=CapabilityId.CALENDAR_CREATE,
+            payload=calendar_payload,
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.CALENDAR_RESCHEDULE,
+        )
+        return IntentDecision(
+            intent_type=IntentType.MULTI_TASK,
+            reason="plan message, doc, and calendar in order",
+            action_plan=["send message", "create doc", "create event"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_multi_plan",
+            standard_action=action_1,
+            planned_actions=[action_1, action_2, action_3],
+            task_clauses=[
+                "send Alex a reminder",
+                "create Review notes",
+                "schedule Project review tomorrow at 3pm",
+            ],
+            structured_command={
+                "intent_type": IntentType.MULTI_TASK.value,
+                "tasks": [
+                    {"raw_message": "send Alex a reminder", "capability_id": "im.message_send", "payload": message_payload},
+                    {"raw_message": "create Review notes", "capability_id": "docs.create", "payload": doc_payload},
+                    {"raw_message": "schedule Project review tomorrow at 3pm", "capability_id": "calendar.create", "payload": calendar_payload},
+                ],
+            },
+        )
+
+    executed: list[CapabilityId] = []
+
+    def fake_execute_action(*_: object, **kwargs: object) -> ExecutorResult:
+        action = kwargs["action"]
+        assert isinstance(action, StandardAction)
+        executed.append(action.capability_id)
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="executed 1 cli invocation(s)",
+            payload={"domain": "mixed", "dry_run": False, "steps": [{"exit_code": 0}], "error": None},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("send Alex, create doc, schedule review")))
+
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert executed == [CapabilityId.IM_MESSAGE_SEND, CapabilityId.DOC_CREATE, CapabilityId.CALENDAR_CREATE]
+    assert response.execution_payload["mode"] == "multi_task"
+    assert response.execution_payload["completed_count"] == 3

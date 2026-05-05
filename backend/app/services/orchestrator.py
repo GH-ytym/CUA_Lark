@@ -15,6 +15,7 @@ from app.schemas.chat import ExecuteCommandRequest, ExecuteCommandResponse
 from app.services.cua_service import CuaService
 from app.services.intent_service import IntentDecision, IntentService
 from app.services.lark_cli_service import LarkCliService
+from app.services.retry_service import RetryService
 from shared.error_codes import CLI_TRIGGER_ERROR_CODES, cli_error_name, normalize_error_code
 
 
@@ -26,11 +27,14 @@ class OrchestratorService:
         intent_service: IntentService | None = None,
         cli_service: LarkCliService | None = None,
         cua_service: CuaService | None = None,
+        retry_service: RetryService | None = None,
     ) -> None:
         self.intent_service = intent_service or IntentService()
         self.cli_service = cli_service or LarkCliService()
         self.cua_service = cua_service or CuaService()
+        self.retry_service = retry_service or RetryService()
         self._tasks: dict[str, OrchestrationTask] = {}
+        self._canceled_task_ids: set[str] = set()
 
     async def execute_command(self, payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
         """Create a task, parse it, optionally execute CLI, and return API ack."""
@@ -39,6 +43,7 @@ class OrchestratorService:
             user_id=payload.user_id,
             raw_message=payload.message,
         )
+        self._tasks[task.task_id] = task
         self._record_step(task, "task_created", ExecutionStatus.QUEUED, "task accepted")
 
         parsed = await self.intent_service.parse(message=payload.message, context_hint=payload.context_hint)
@@ -101,6 +106,13 @@ class OrchestratorService:
             execution_summary = "未找到可执行的标准动作。"
         else:
             for item in task.planned_actions:
+                if self._is_cancel_requested(task.task_id):
+                    task.status = ExecutionStatus.CANCELED
+                    item.status = "canceled"
+                    execution_status = ExecutionStatus.CANCELED
+                    execution_summary = "task canceled before execution"
+                    self._record_step(task, f"action_{item.order}_canceled", ExecutionStatus.CANCELED, execution_summary)
+                    break
                 item_action = self._prepare_action_for_execution(task=task, item=item)
                 item.standard_action = item_action
                 if self._is_cli_command_implemented(item_action):
@@ -114,7 +126,11 @@ class OrchestratorService:
                         item_action.capability_id.value,
                         {"order": item.order, "raw_message": item.raw_message},
                     )
-                    result = self.cli_service.execute_action(action=item_action, dry_run=False)
+                    result = self.retry_service.run(
+                        lambda: self.cli_service.execute_action(action=item_action, dry_run=False),
+                        is_success=lambda item_result: item_result.success,
+                        error_code=lambda item_result: item_result.error_code,
+                    )
                     task.executor_result = result
                     item.summary = result.summary
                     item.error_code = result.error_code
@@ -142,7 +158,31 @@ class OrchestratorService:
                             "cua_should_trigger": cua_should_trigger,
                         },
                     )
+                    if self._is_cancel_requested(task.task_id):
+                        task.status = ExecutionStatus.CANCELED
+                        item.status = "canceled"
+                        execution_status = ExecutionStatus.CANCELED
+                        execution_summary = "task canceled after cli execution"
+                        self._record_step(
+                            task,
+                            f"action_{item.order}_canceled",
+                            ExecutionStatus.CANCELED,
+                            execution_summary,
+                        )
+                        break
                     if cua_should_trigger:
+                        if self._is_cancel_requested(task.task_id):
+                            task.status = ExecutionStatus.CANCELED
+                            item.status = "canceled"
+                            execution_status = ExecutionStatus.CANCELED
+                            execution_summary = "task canceled before cua fallback"
+                            self._record_step(
+                                task,
+                                f"action_{item.order}_canceled",
+                                ExecutionStatus.CANCELED,
+                                execution_summary,
+                            )
+                            break
                         task.status = ExecutionStatus.CUA_RUNNING
                         item.status = "cua_running"
                         task.updated_at = datetime.now(UTC)
@@ -201,6 +241,10 @@ class OrchestratorService:
                     "capability_id": item_action.capability_id.value,
                     "payload": dict(item_action.payload),
                 }
+                task.status = ExecutionStatus.QUEUED
+                execution_status = ExecutionStatus.QUEUED
+                execution_summary = item.summary
+                execution_payload = item.execution_payload
                 plan_only_count += 1
                 self._record_step(
                     task,
@@ -222,6 +266,9 @@ class OrchestratorService:
                 execution_status = ExecutionStatus.FAILED
                 task.status = ExecutionStatus.FAILED
                 execution_summary = f"planned {len(task.planned_actions)} tasks; {completed_count} completed, {plan_only_count} structured-only, {failed_count} failed"
+            elif task.status == ExecutionStatus.CANCELED:
+                execution_status = ExecutionStatus.CANCELED
+                execution_summary = f"planned {len(task.planned_actions)} tasks; {completed_count} completed, {plan_only_count} structured-only, canceled"
             elif needs_confirmation:
                 execution_status = ExecutionStatus.QUEUED
                 task.status = ExecutionStatus.QUEUED
@@ -260,6 +307,19 @@ class OrchestratorService:
     def get_task(self, task_id: str) -> OrchestrationTask | None:
         """Return an in-memory task record by ID."""
         return self._tasks.get(task_id)
+
+    def cancel_task(self, task_id: str) -> OrchestrationTask | None:
+        """Mark a non-terminal in-memory task as canceled."""
+        task = self._tasks.get(task_id)
+        if task is None:
+            return None
+        if task.status in {ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELED}:
+            return task
+        self._canceled_task_ids.add(task_id)
+        task.status = ExecutionStatus.CANCELED
+        task.updated_at = datetime.now(UTC)
+        self._record_step(task, "task_canceled", ExecutionStatus.CANCELED, "task canceled by request")
+        return task
 
     @staticmethod
     def _extract_payload(parsed: IntentDecision) -> dict[str, object]:
@@ -440,17 +500,11 @@ class OrchestratorService:
 
     @staticmethod
     def _needs_confirmation(parsed: IntentDecision, payload: dict[str, object]) -> bool:
-        return (
-            parsed.intent_type == IntentType.MESSAGE_SEND
-            and str(payload.get("resolution_status", "")).strip() == "needs_confirmation"
-        )
+        return str(payload.get("resolution_status", "")).strip() == "needs_confirmation"
 
     @staticmethod
     def _needs_confirmation_for_action(action: StandardAction, payload: dict[str, object]) -> bool:
-        return (
-            action.intent_type == IntentType.MESSAGE_SEND
-            and str(payload.get("resolution_status", "")).strip() == "needs_confirmation"
-        )
+        return str(payload.get("resolution_status", "")).strip() == "needs_confirmation"
 
     @staticmethod
     def _first_confirmation_order(planned_actions: list[PlannedActionItem]) -> int:
@@ -479,10 +533,21 @@ class OrchestratorService:
     def _is_cli_command_implemented(action: StandardAction) -> bool:
         return action.capability_id in {
             CapabilityId.IM_MESSAGE_SEND,
+            CapabilityId.IM_MESSAGES_REPLY,
+            CapabilityId.IM_MESSAGES_SEARCH,
+            CapabilityId.IM_CHAT_MESSAGES_LIST,
+            CapabilityId.IM_CHAT_SEARCH,
+            CapabilityId.IM_CHAT_CREATE,
+            CapabilityId.CALENDAR_CREATE,
+            CapabilityId.CALENDAR_AGENDA,
+            CapabilityId.CALENDAR_FREEBUSY,
             CapabilityId.DOC_CREATE,
             CapabilityId.DOC_UPDATE,
             CapabilityId.DOC_SEARCH,
         }
+
+    def _is_cancel_requested(self, task_id: str) -> bool:
+        return task_id in self._canceled_task_ids
 
     @staticmethod
     def _should_trigger_cua(

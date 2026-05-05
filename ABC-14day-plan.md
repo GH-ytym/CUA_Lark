@@ -39,6 +39,15 @@
 - 日志与回包都要保留调试字段：`error.code` 使用整数，`error.name` 保留字符串别名，`triggered_by.cli_error_code` 回写原始 CLI 触发码。
 - 演示验收至少覆盖两类案例：`CLI 权限失败 -> CUA 接管成功`，以及 `CLI 失败 -> CUA 也失败并回写最终错误码`。
 
+### A/day8 补充说明
+
+- 重试策略落到 `RetryService`：默认最多 2 次尝试，仅对统一错误码 `1/5/6`（限流/执行错误/超时）重试；`3/4`（权限/输入或结果无效）不重试，继续按现有规则进入 CUA fallback 判断。
+- CLI timeout 继续由现有 `lark_cli_timeout_seconds` 控制，超时会归一到错误码 `6`，并纳入同一重试策略。
+- 新增 `POST /api/executions/{task_id}/cancel`：queued/parsing/running-like 的内存任务可标记为 `canceled`；已完成、失败、已取消的终态任务不被改写。
+- 编排器在每个 planned action 执行前、以及 CUA fallback 前检查取消状态；本轮不引入后台队列，也不承诺中断已经运行中的 OS 子进程，Day9 再扩展为可中断长任务。
+- 日程域本轮补齐 `calendar.create`、`calendar.agenda`、`calendar.freebusy` 的自然语言 -> `StandardAction` -> capability registry -> `lark-cli calendar +create/+agenda/+freebusy` 可执行链路。
+- `calendar.reschedule` 先保证 `event_hint/source_time/target_time/target_start_time/target_end_time/calendar_id/event_id` 结构化输出；无 `event_id` 时保持 structured-only，避免误改真实日程。
+
 ### A/day3 与 day6 补充说明
 
 - day3 多任务解析目标：一条自然语言可拆成 3-4 个子任务，保持用户原始顺序，不做并行重排。
