@@ -5,6 +5,7 @@ from ..operators.action_executor import execute_parsed_actions, parse_action_jso
 from ..perception.screen_capture import capture_screen_base64
 from ..report.logger import RunLogger
 from .context_builder import ContextBuilder
+from ..memory import global_memory, MemoryType
 
 class AgentLoopRunner:
     def __init__(self, logger: RunLogger, llm_request_func: Callable):
@@ -24,9 +25,16 @@ class AgentLoopRunner:
         messages = ContextBuilder.build_initial_messages(current_goal)
         if b64_img:
             messages[-1]["content"] = [
-                {"type": "text", "text": current_goal},
+                {"type": "text", "text": f"{current_goal}\n\n{global_memory.format_for_prompt(10)}"},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
             ]
+        
+        # 记录任务目标记忆
+        global_memory.add_memory(
+            memory_type=MemoryType.GOAL,
+            content=f"开始执行任务: {current_goal}",
+            importance=0.8
+        )
             
         while self.step_count < max_steps:
             self.step_count += 1
@@ -41,9 +49,36 @@ class AgentLoopRunner:
             # 3. 手: 执行解析出的动作列表字典
             res = execute_parsed_actions(actions)
             
+            # 记录动作记忆
+            for action in res["executed_actions"]:
+                global_memory.add_memory(
+                    memory_type=MemoryType.ACTION,
+                    content=action,
+                    context={"success": res["success"], "step": self.step_count},
+                    importance=0.6
+                )
+            
+            # 如果执行失败，记录失败记忆
+            if not res["success"]:
+                global_memory.add_memory(
+                    memory_type=MemoryType.FAILURE,
+                    content=f"动作执行失败: {res.get('error', '未知错误')}",
+                    context={"actions": actions, "step": self.step_count},
+                    importance=0.9
+                )
+            
             # 4. 眼: 等待并反馈
             time.sleep(1.0)
             b64_img = capture_screen_base64()
+            
+            # 记录观察结果记忆
+            if b64_img:
+                global_memory.add_memory(
+                    memory_type=MemoryType.OBSERVATION,
+                    content="获取当前屏幕截图",
+                    context={"has_image": True},
+                    importance=0.4
+                )
             if b64_img:
                 b64_img=f"data:image/jpeg;base64,{b64_img}"
             img_path = self.logger.save_screenshot(b64_img, self.step_count)
@@ -75,6 +110,13 @@ class AgentLoopRunner:
                 self.logger.log_step({
                     "step": self.step_count, "action": "DONE", "output": model_reply
                 })
+                # 记录任务成功记忆
+                global_memory.add_memory(
+                    memory_type=MemoryType.SUCCESS,
+                    content=f"任务完成: {current_goal}",
+                    context={"steps": self.step_count, "actions": self.action_summary},
+                    importance=0.9
+                )
                 return True
 
         logging.warning("达到了最大循环步数限制。")

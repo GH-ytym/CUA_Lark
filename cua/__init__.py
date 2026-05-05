@@ -43,10 +43,7 @@ from .primitives import (
     save_state_for_backtrack
 )
 
-from .executor import (
-    CuaExecutor,
-    CuaOperationException
-)
+# executor模块已移除，使用AgentLoopRunner替代
 
 from .perception.screen_capture import (
     capture_screen_base64,
@@ -76,6 +73,41 @@ from .element_detector import (
     ElementDetector
 )
 
+# DSL相关模块
+from .dsl.generator import (
+    DslGenerator
+)
+
+from .dsl.evaluator import (
+    DslEvaluator
+)
+
+from .dsl.doc_extractor import (
+    DocumentCaseExtractor
+)
+# 基准测试模块
+from .benchmark import (
+    BenchmarkRunner,
+    BenchmarkCase,
+    BenchmarkResult
+)
+
+# 记忆功能模块
+from .memory import (
+    MemoryType,
+    MemoryItem,
+    MemoryManager,
+    global_memory
+)
+
+from .report.md import (
+    MdReportGenerator
+)
+
+from .report.insight_analyzer import (
+    InsightAnalyzer
+)
+
 __version__ = "3.0.0"
 __all__ = [
     "LarkCliError",
@@ -100,8 +132,6 @@ __all__ = [
     "safe_scroll",
     "safe_hotkey",
     "save_state_for_backtrack",
-    "CuaExecutor",
-    "CuaOperationException",
     "capture_screen_base64",
     "build_marker_base64",
     "save_screenshot_with_marker",
@@ -121,4 +151,18 @@ __all__ = [
     "DetectedElement",
     "ElementDetectionResult",
     "ElementDetector",
+    
+    # DSL相关导出
+    "DslGenerator",
+    "DslEvaluator",
+    "DocumentCaseExtractor",
+    "BenchmarkRunner",
+    "BenchmarkCase", 
+    "BenchmarkResult",
+    "MemoryType",
+    "MemoryItem",
+    "MemoryManager",
+    "global_memory",
+    "MdReportGenerator",
+    "InsightAnalyzer",
 ]

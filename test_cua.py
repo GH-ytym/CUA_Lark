@@ -8,8 +8,12 @@ from cua.schemas import CuaResponse
 from cua.primitives import (
     focus_and_maximize
 )
+from cua.agent import AgentController
+from openai import OpenAI
+import os
+from dotenv import load_dotenv
 
-# 2. 测试多步AgentController（复杂任务自动规划执行）
+# 测试多步AgentController（复杂任务自动规划执行）
 def test_multi_step_agent():
 
     success, hwnd = focus_and_maximize("飞书")
@@ -26,10 +30,6 @@ def test_multi_step_agent():
     print("🧪 测试2: 多步AgentController模式（复杂任务自动规划）")
     print("="*60)
     
-    from cua import AgentController
-    from openai import OpenAI
-    import os
-    from dotenv import load_dotenv
     
     # 加载环境变量
     load_dotenv()
@@ -94,7 +94,6 @@ if __name__ == "__main__":
     print("⚠️  注意：运行前请确保飞书已经打开，避免操作失败\n")
     
     # 运行测试
-    #single_success = test_single_step_executor()
     multi_success = test_multi_step_agent()
     
     print("="*60)
