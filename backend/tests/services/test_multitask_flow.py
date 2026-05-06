@@ -8,6 +8,7 @@ from app.domain.models import ExecutorResult
 from app.schemas.chat import ExecuteCommandRequest
 from app.services.intent_service import IntentService
 from app.services.orchestrator import OrchestratorService
+from shared.error_codes import UnifiedErrorCode
 
 
 def _multitask_message() -> str:
@@ -303,7 +304,7 @@ def test_orchestrator_multitask_runs_real_message_docs_and_calendar_cli_path() -
     assert response.planned_actions[3].execution_payload["payload"]["value"] == "已发布"
 
 
-def test_multitask_confirmation_can_resume_message_action() -> None:
+def test_multitask_ambiguous_message_hands_off_to_cua() -> None:
     service = OrchestratorService()
     service.intent_service.settings.dashscope_api_key = "test-key"
     service.intent_service.settings.intent_require_llm = True
@@ -311,7 +312,9 @@ def test_multitask_confirmation_can_resume_message_action() -> None:
     async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
         payload = dict(kwargs["payload"])
         if payload.get("chat_hint") == "王":
-            payload["resolution_status"] = "needs_confirmation"
+            payload["resolution_status"] = "handoff_required"
+            payload["handoff_error_code"] = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+            payload["handoff_reason"] = "recipient resolution requires current Feishu UI context"
             payload["resolution_candidates"] = [
                 {"name": "王建国", "entity_type": "contact", "entity_id": "ou_a", "score": 0.91},
                 {"name": "王小明", "entity_type": "contact", "entity_id": "ou_b", "score": 0.88},
@@ -355,7 +358,18 @@ def test_multitask_confirmation_can_resume_message_action() -> None:
     service.intent_service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
     service.intent_service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
 
-    waiting_response = asyncio.run(
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback"},
+        )
+
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(
         service.execute_command(
             ExecuteCommandRequest(
                 message="先给王发消息：今晚九点发布；然后创建文档，标题叫发布说明",
@@ -367,55 +381,10 @@ def test_multitask_confirmation_can_resume_message_action() -> None:
         )
     )
 
-    assert waiting_response.parsed_intent == IntentType.MULTI_TASK
-    assert waiting_response.needs_confirmation is True
-    assert waiting_response.structured_payload["resolution_status"] == "needs_confirmation"
-    assert waiting_response.resolution_candidates[0].entity_id == "ou_a"
-
-    responses = response_batch()
-
-    async def fake_chat_completion_resume(*_: object, **__: object) -> tuple[str, str | None]:
-        return responses.pop(0), None
-
-    captured_argvs: list[list[str]] = []
-
-    def fake_run(argv: list[str], *_: object, **__: object) -> subprocess.CompletedProcess[bytes]:
-        captured_argvs.append(list(argv))
-        stdout = b'{"ok":true}'
-        if len(captured_argvs) == 2:
-            stdout = b'{"ok":true,"document":{"document_id":"doccn456"}}'
-        return subprocess.CompletedProcess(args=argv, returncode=0, stdout=stdout, stderr=b"")
-
-    service.intent_service._chat_completion = fake_chat_completion_resume  # type: ignore[method-assign]
-    subprocess_run = subprocess.run
-    try:
-        subprocess.run = fake_run  # type: ignore[assignment]
-        resumed_response = asyncio.run(
-            service.execute_command(
-                ExecuteCommandRequest(
-                    message="先给王发消息：今晚九点发布；然后创建文档，标题叫发布说明",
-                    session_id="s1",
-                    user_id="u1",
-                    conversation_type="chat",
-                    context_hint="",
-                    confirmed_entity_id="ou_a",
-                )
-            )
-        )
-    finally:
-        subprocess.run = subprocess_run  # type: ignore[assignment]
-
-    assert resumed_response.needs_confirmation is False
-    assert resumed_response.structured_payload["user_id"] == "ou_a"
-    assert resumed_response.structured_payload["resolution_method"] == "user_confirmation"
-    assert len(captured_argvs) == 2
-    assert Path(captured_argvs[0][0]).name.lower() in {"lark-cli", "lark-cli.cmd"}
-    assert captured_argvs[0][1:3] == ["im", "+messages-send"]
-    assert "--user-id" in captured_argvs[0]
-    assert "ou_a" in captured_argvs[0]
-    assert captured_argvs[1][1:3] == ["docs", "+create"]
-    assert "--title" in captured_argvs[1]
-    assert "发布说明" in captured_argvs[1]
-    assert [item.status for item in resumed_response.planned_actions] == ["completed", "completed"]
-    assert resumed_response.planned_actions[0].standard_action.payload["user_id"] == "ou_a"
-    assert resumed_response.planned_actions[1].execution_payload["steps"][0]["exit_code"] == 0
+    assert response.parsed_intent == IntentType.MULTI_TASK
+    assert response.needs_confirmation is False
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cua_should_trigger is True
+    assert response.execution_payload["mode"] == "multi_task"
+    assert response.execution_payload["completed_count"] == 2
+    assert response.planned_actions[0].execution_payload["mode"] == "cua_fallback"

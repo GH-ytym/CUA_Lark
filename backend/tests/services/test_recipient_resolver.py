@@ -68,7 +68,7 @@ def test_resolve_typo_name_with_rules(tmp_path: Path) -> None:
     assert resolved["resolution_status"] == "resolved"
 
 
-def test_generic_hint_needs_confirmation(tmp_path: Path) -> None:
+def test_generic_hint_requests_handoff(tmp_path: Path) -> None:
     db_path = tmp_path / "recipients.db"
     build_db(db_path)
     resolver = RecipientResolver(sqlite_path=str(db_path))
@@ -76,8 +76,9 @@ def test_generic_hint_needs_confirmation(tmp_path: Path) -> None:
     resolved = asyncio.run(resolver.resolve(payload=payload))
     assert resolved["chat_id"] == ""
     assert resolved["user_id"] == ""
-    assert resolved["resolution_status"] == "needs_confirmation"
+    assert resolved["resolution_status"] == "handoff_required"
     assert resolved["resolution_candidates"]
+    assert resolved["handoff_error_code"] == 7
 
 
 def test_recent_hit_cache_shortcuts_second_lookup(tmp_path: Path) -> None:
@@ -104,14 +105,15 @@ def test_alias_expand_matches_xiao_wang(tmp_path: Path) -> None:
     assert resolved["resolution_status"] == "resolved"
 
 
-def test_missing_hint_needs_confirmation(tmp_path: Path) -> None:
+def test_missing_hint_requests_handoff(tmp_path: Path) -> None:
     db_path = tmp_path / "recipients.db"
     build_db(db_path)
     resolver = RecipientResolver(sqlite_path=str(db_path))
     payload = {"chat_hint": "", "chat_id": "", "user_id": "", "text": "今晚发布"}
     resolved = asyncio.run(resolver.resolve(payload=payload))
-    assert resolved["resolution_status"] == "needs_confirmation"
+    assert resolved["resolution_status"] == "handoff_required"
     assert resolved["resolution_reason"] == "missing_hint"
+    assert resolved["handoff_error_code"] == 7
 
 
 def test_resolve_current_authorized_user_when_directory_missing(monkeypatch, tmp_path: Path) -> None:

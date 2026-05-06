@@ -7,12 +7,12 @@ from app.services.intent_service import IntentDecision
 from shared.error_codes import UnifiedErrorCode
 
 
-def test_execute_returns_confirmation_candidates(monkeypatch) -> None:
+def test_execute_hands_off_ambiguous_target_to_cua(monkeypatch) -> None:
     async def fake_parse(*_: object, **__: object) -> IntentDecision:
         return IntentDecision(
             intent_type=IntentType.MESSAGE_SEND,
-            reason="候选存在，需要前端确认",
-            action_plan=["定位接收对象", "等待确认", "发送消息"],
+            reason="候选存在，需要切换到 CUA",
+            action_plan=["定位接收对象", "切换到 CUA", "发送消息"],
             selected_executor=ExecutorType.CLI,
             parse_source="rules_resolve_first",
             structured_command={
@@ -22,7 +22,9 @@ def test_execute_returns_confirmation_candidates(monkeypatch) -> None:
                     "chat_id": "",
                     "user_id": "",
                     "text": "你好",
-                    "resolution_status": "needs_confirmation",
+                    "resolution_status": "handoff_required",
+                    "handoff_error_code": int(UnifiedErrorCode.HANDOFF_REQUIRED),
+                    "handoff_reason": "recipient resolution requires current Feishu UI context",
                     "resolution_candidates": [
                         {"name": "王建国", "entity_type": "contact", "entity_id": "ou_a", "score": 0.91},
                         {"name": "王小明", "entity_type": "contact", "entity_id": "ou_b", "score": 0.88},
@@ -34,6 +36,17 @@ def test_execute_returns_confirmation_candidates(monkeypatch) -> None:
     from app.api.routes import agent
 
     monkeypatch.setattr(agent.intent_service, "parse", fake_parse)
+    monkeypatch.setattr(
+        agent.orchestrator_service.cua_service,
+        "execute_fallback",
+        lambda *_, **__: ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback"},
+        ),
+    )
     client = TestClient(create_app())
     response = client.post(
         "/api/agent/execute",
@@ -48,9 +61,10 @@ def test_execute_returns_confirmation_candidates(monkeypatch) -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["needs_confirmation"] is True
-    assert len(data["resolution_candidates"]) == 2
-    assert data["structured_payload"]["resolution_status"] == "needs_confirmation"
+    assert data["needs_confirmation"] is False
+    assert data["cua_should_trigger"] is True
+    assert data["execution_status"] == "completed"
+    assert data["execution_payload"]["mode"] == "cua_fallback"
 
 
 def test_get_cua_boundary_returns_integer_catalog() -> None:
@@ -63,12 +77,12 @@ def test_get_cua_boundary_returns_integer_catalog() -> None:
     assert any(item["code"] == 3 and item["name"] == "PERMISSION_DENIED" for item in data["error_code_catalog"])
 
 
-def test_execute_applies_confirmed_entity_id(monkeypatch) -> None:
+def test_execute_does_not_support_confirmed_entity_id_resume(monkeypatch) -> None:
     async def fake_parse(*_: object, **__: object) -> IntentDecision:
         return IntentDecision(
             intent_type=IntentType.MESSAGE_SEND,
-            reason="候选存在，需要前端确认",
-            action_plan=["定位接收对象", "等待确认", "发送消息"],
+            reason="候选存在，需要切换到 CUA",
+            action_plan=["定位接收对象", "切换到 CUA", "发送消息"],
             selected_executor=ExecutorType.CLI,
             parse_source="rules_resolve_first",
             structured_command={
@@ -78,7 +92,8 @@ def test_execute_applies_confirmed_entity_id(monkeypatch) -> None:
                     "chat_id": "",
                     "user_id": "",
                     "text": "今晚发布",
-                    "resolution_status": "needs_confirmation",
+                    "resolution_status": "handoff_required",
+                    "handoff_error_code": int(UnifiedErrorCode.HANDOFF_REQUIRED),
                     "resolution_candidates": [
                         {"name": "项目群", "entity_type": "chat", "entity_id": "oc_proj", "score": 0.93},
                     ],
@@ -90,14 +105,14 @@ def test_execute_applies_confirmed_entity_id(monkeypatch) -> None:
 
     monkeypatch.setattr(agent.intent_service, "parse", fake_parse)
     monkeypatch.setattr(
-        agent.lark_cli_service,
-        "execute_action",
+        agent.orchestrator_service.cua_service,
+        "execute_fallback",
         lambda *_, **__: ExecutorResult(
-            executor=ExecutorType.CLI,
+            executor=ExecutorType.CUA,
             success=True,
             status=ExecutionStatus.COMPLETED,
-            summary="executed 1 cli invocation(s)",
-            payload={"domain": "message", "dry_run": False, "steps": [], "error": None},
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback"},
         ),
     )
     client = TestClient(create_app())
@@ -116,11 +131,8 @@ def test_execute_applies_confirmed_entity_id(monkeypatch) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["needs_confirmation"] is False
-    assert data["structured_payload"]["chat_id"] == "oc_proj"
-    assert data["structured_payload"]["resolution_status"] == "resolved"
-    assert data["structured_payload"]["resolution_method"] == "user_confirmation"
     assert data["execution_status"] == "completed"
-    assert data["cua_should_trigger"] is False
+    assert data["cua_should_trigger"] is True
 
 
 def test_execute_runs_cli_when_already_resolved(monkeypatch) -> None:

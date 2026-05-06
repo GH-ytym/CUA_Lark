@@ -26,9 +26,6 @@ export function isTerminalExecutionStatus(status: ExecutionStatus): boolean {
 }
 
 export function mapExecutionStatusToTaskStatus(status: ExecutionStatus, needsConfirmation = false): TaskStatus {
-	if (needsConfirmation) {
-		return "queued";
-	}
 	if (status === "cua_running") {
 		return "fallback";
 	}
@@ -51,24 +48,20 @@ export function buildTaskCards(viewState: ExecutionViewState | null): TaskCard[]
 	const { response, detail } = viewState;
 	const status = detail?.status ?? response.execution_status ?? response.initial_status;
 	const result = detail?.executor_result;
-	const needsConfirmation = response.needs_confirmation || Boolean(detail?.needs_confirmation);
 	const owner =
 		result?.executor === "cli" || response.selected_executor === "cli"
 			? "CLI"
 			: result?.executor === "cua" || response.selected_executor === "cua"
 				? "CUA"
 				: "Agent";
-	const description =
-		needsConfirmation
-			? response.confirmation_message || "等待确认后继续执行。"
-			: result?.summary || response.execution_summary || response.intent_reason || "任务已受理。";
+	const description = result?.summary || response.execution_summary || response.intent_reason || "任务已受理。";
 
 	return [
 		{
 			id: response.task_id,
-			title: titleForStatus(status, needsConfirmation),
+			title: titleForStatus(status),
 			description,
-			status: mapExecutionStatusToTaskStatus(status, needsConfirmation),
+			status: mapExecutionStatusToTaskStatus(status),
 			owner,
 			duration: formatDuration(result?.duration_ms),
 		},
@@ -113,7 +106,6 @@ export function buildTimelineSteps(viewState: ExecutionViewState | null): Timeli
 	const { response, detail } = viewState;
 	const steps = detail?.steps ?? [];
 	const currentStatus = detail?.status ?? response.execution_status;
-	const needsConfirmation = response.needs_confirmation || Boolean(detail?.needs_confirmation);
 	const hasIntent = hasStepNamed(steps, "intent_parsed");
 	const hasCliStarted = hasStepMatching(steps, /(^|_)cli_started$/);
 	const hasCliFinished = hasStepMatching(steps, /(^|_)cli_finished$/);
@@ -137,8 +129,8 @@ export function buildTimelineSteps(viewState: ExecutionViewState | null): Timeli
 		{
 			id: "cli",
 			label: "CLI",
-			detail: cliTimelineDetail(currentStatus, hasCliStarted, hasCliFinished, needsConfirmation),
-			status: cliTimelineStatus(currentStatus, hasCliStarted, hasCliFinished, needsConfirmation),
+			detail: cliTimelineDetail(currentStatus, hasCliStarted, hasCliFinished),
+			status: cliTimelineStatus(currentStatus, hasCliStarted, hasCliFinished),
 		},
 		{
 			id: "cua",
@@ -149,7 +141,7 @@ export function buildTimelineSteps(viewState: ExecutionViewState | null): Timeli
 		{
 			id: "result",
 			label: "结果",
-			detail: terminal ? statusLabel(currentStatus) : needsConfirmation ? "等待确认后继续执行。" : "执行中，等待最终结果。",
+			detail: terminal ? statusLabel(currentStatus) : "执行中，等待最终结果。",
 			status: resultTimelineStatus(currentStatus),
 		},
 	];
@@ -229,14 +221,6 @@ export function buildIssueSummary(viewState: ExecutionViewState | null): {
 			severity: "warning",
 		};
 	}
-	if (response.needs_confirmation || detail?.needs_confirmation) {
-		return {
-			title: "需要二次确认",
-			description: response.confirmation_message || "请先确认目标对象。",
-			actionHint: "选择候选对象后继续执行，或取消当前任务。",
-			severity: "info",
-		};
-	}
 	return null;
 }
 
@@ -271,10 +255,7 @@ function hasStep(steps: TaskStepRecord[], nextStep: TaskStepRecord): boolean {
 	);
 }
 
-function titleForStatus(status: ExecutionStatus, needsConfirmation: boolean): string {
-	if (needsConfirmation) {
-		return "待确认发送对象";
-	}
+function titleForStatus(status: ExecutionStatus): string {
 	if (status === "completed") {
 		return "任务已完成";
 	}
@@ -318,11 +299,7 @@ function cliTimelineStatus(
 	status: ExecutionStatus,
 	hasStarted: boolean,
 	hasFinished: boolean,
-	needsConfirmation: boolean,
 ): TimelineStep["status"] {
-	if (needsConfirmation) {
-		return "pending";
-	}
 	if (status === "cli_running") {
 		return "active";
 	}
@@ -342,11 +319,7 @@ function cliTimelineDetail(
 	status: ExecutionStatus,
 	hasStarted: boolean,
 	hasFinished: boolean,
-	needsConfirmation: boolean,
 ): string {
-	if (needsConfirmation) {
-		return "等待对象确认，暂不执行 CLI。";
-	}
 	if (status === "cli_running" || hasStarted) {
 		return hasFinished ? "CLI 已返回结果。" : "CLI 正在执行。";
 	}
@@ -409,7 +382,6 @@ function labelForStep(name: string): string {
 	const labels: Record<string, string> = {
 		task_created: "任务受理",
 		intent_parsed: "意图解析",
-		confirmation_required: "等待确认",
 		cli_started: "CLI 开始",
 		cli_finished: "CLI 结束",
 		cua_started: "CUA 接管",

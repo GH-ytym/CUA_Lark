@@ -20,6 +20,8 @@ def request(message: str = "给项目群发今晚发布", confirmed_entity_id: s
 
 
 def decision(payload: dict[str, object]) -> IntentDecision:
+    handoff_error_code = payload.get("handoff_error_code")
+    handoff_reason = str(payload.get("handoff_reason", "")).strip()
     return IntentDecision(
         intent_type=IntentType.MESSAGE_SEND,
         reason="对象已解析，可直接发送",
@@ -31,6 +33,8 @@ def decision(payload: dict[str, object]) -> IntentDecision:
             payload=payload,
             executor_hint=ExecutorType.CLI,
             intent_type=IntentType.MESSAGE_SEND,
+            handoff_error_code=int(handoff_error_code) if handoff_error_code is not None else None,
+            handoff_reason=handoff_reason,
         ),
         structured_command={"intent_type": IntentType.MESSAGE_SEND.value, "payload": payload},
     )
@@ -71,14 +75,16 @@ def test_orchestrator_creates_task_and_executes_cli() -> None:
     assert [step.name for step in task.steps] == ["task_created", "intent_parsed", "cli_started", "cli_finished"]
 
 
-def test_orchestrator_keeps_confirmation_queued() -> None:
+def test_orchestrator_hands_off_ambiguous_message_to_cua() -> None:
     service = OrchestratorService()
     payload = {
         "chat_hint": "王",
         "chat_id": "",
         "user_id": "",
         "text": "你好",
-        "resolution_status": "needs_confirmation",
+        "resolution_status": "handoff_required",
+        "handoff_error_code": int(UnifiedErrorCode.HANDOFF_REQUIRED),
+        "handoff_reason": "recipient resolution requires current Feishu UI context",
         "resolution_candidates": [
             {"name": "王建国", "entity_type": "contact", "entity_id": "ou_a", "score": 0.91},
         ],
@@ -88,16 +94,27 @@ def test_orchestrator_keeps_confirmation_queued() -> None:
         return decision(payload)
 
     def should_not_execute(*_: object, **__: object) -> ExecutorResult:
-        raise AssertionError("CLI should not run before user confirms")
+        raise AssertionError("CLI should not run for handoff_required payloads")
+
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback"},
+        )
 
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = should_not_execute  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request("给王发你好")))
 
-    assert response.needs_confirmation is True
-    assert response.execution_status == ExecutionStatus.QUEUED
-    assert response.resolution_candidates[0].entity_id == "ou_a"
+    assert response.needs_confirmation is False
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cua_should_trigger is True
+    assert response.execution_payload["mode"] == "cua_fallback"
 
 
 def test_orchestrator_maps_cli_failure_to_cua_trigger() -> None:
@@ -755,7 +772,7 @@ def test_orchestrator_retries_transient_cli_failure_then_succeeds() -> None:
     assert response.cli_error_code is None
 
 
-def test_orchestrator_blocks_calendar_confirmation_before_cli() -> None:
+def test_orchestrator_hands_off_ambiguous_calendar_to_cua() -> None:
     service = OrchestratorService()
     payload = {
         "title": "Project review",
@@ -763,7 +780,9 @@ def test_orchestrator_blocks_calendar_confirmation_before_cli() -> None:
         "end_time": "2026-05-06T16:00:00+08:00",
         "attendees": ["Alex"],
         "attendee_ids": [],
-        "resolution_status": "needs_confirmation",
+        "resolution_status": "handoff_required",
+        "handoff_error_code": int(UnifiedErrorCode.HANDOFF_REQUIRED),
+        "handoff_reason": "calendar attendee resolution requires current Feishu UI context",
         "resolution_candidates": [
             {"name": "Alex Chen", "entity_type": "contact", "entity_id": "ou_alex", "score": 0.8},
         ],
@@ -775,6 +794,8 @@ def test_orchestrator_blocks_calendar_confirmation_before_cli() -> None:
             payload=payload,
             executor_hint=ExecutorType.CLI,
             intent_type=IntentType.CALENDAR_RESCHEDULE,
+            handoff_error_code=int(UnifiedErrorCode.HANDOFF_REQUIRED),
+            handoff_reason="calendar attendee resolution requires current Feishu UI context",
         )
         return IntentDecision(
             intent_type=IntentType.CALENDAR_RESCHEDULE,
@@ -788,16 +809,27 @@ def test_orchestrator_blocks_calendar_confirmation_before_cli() -> None:
         )
 
     def should_not_execute(*_: object, **__: object) -> ExecutorResult:
-        raise AssertionError("calendar create should not run before attendee confirmation")
+        raise AssertionError("calendar create should not run for handoff_required payloads")
+
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback"},
+        )
 
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = should_not_execute  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request("create project review with Alex")))
 
-    assert response.needs_confirmation is True
-    assert response.execution_status == ExecutionStatus.QUEUED
-    assert response.resolution_candidates[0].entity_id == "ou_alex"
+    assert response.needs_confirmation is False
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cua_should_trigger is True
+    assert response.execution_payload["mode"] == "cua_fallback"
 
 
 def test_orchestrator_multitask_message_doc_calendar_executes_in_order() -> None:

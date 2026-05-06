@@ -45,11 +45,6 @@ class OrchestratorService:
 
         parsed = await self.intent_service.parse(message=payload.message, context_hint=payload.context_hint)
         structured_payload = self._extract_payload(parsed)
-        parsed, structured_payload = self._apply_confirmed_entity(
-            parsed=parsed,
-            structured_payload=structured_payload,
-            confirmed_entity_id=payload.confirmed_entity_id,
-        )
 
         action = self._standard_action_for(parsed=parsed, payload=structured_payload)
         planned_actions = self._build_planned_action_items(
@@ -59,7 +54,6 @@ class OrchestratorService:
         )
         response_action = planned_actions[0].standard_action if planned_actions else action
         response_payload = self._response_payload_for_items(planned_actions=planned_actions, fallback_payload=structured_payload)
-        confirmation_order = self._first_confirmation_order(planned_actions=planned_actions)
         task.intent_type = parsed.intent_type
         task.standard_action = response_action
         task.planned_actions = planned_actions
@@ -77,28 +71,22 @@ class OrchestratorService:
             },
         )
 
-        needs_confirmation = any(item.needs_confirmation for item in planned_actions)
-        task.needs_confirmation = needs_confirmation
-        confirmation_message = "请先确认要发送给谁，再继续执行。" if needs_confirmation else ""
+        needs_confirmation = False
+        task.needs_confirmation = False
+        confirmation_message = ""
         execution_status = ExecutionStatus.QUEUED
         execution_summary = "任务已受理，等待后续执行。"
         cli_error_code: int | None = None
         cua_error_code: int | None = None
         cua_should_trigger = False
+        any_cua_triggered = False
         execution_payload: dict[str, object] = {}
         completed_count = 0
         plan_only_count = 0
         failed_count = 0
         handoff_error_code: int | None = None
 
-        if needs_confirmation:
-            confirmation_step_name = (
-                "confirmation_required"
-                if len(task.planned_actions) == 1
-                else f"action_{confirmation_order}_confirmation_required"
-            )
-            self._record_step(task, confirmation_step_name, ExecutionStatus.QUEUED, confirmation_message)
-        elif parsed.intent_type == IntentType.UNKNOWN:
+        if parsed.intent_type == IntentType.UNKNOWN:
             task.status = ExecutionStatus.FAILED
             execution_status = ExecutionStatus.FAILED
             execution_summary = "未找到可执行的标准动作。"
@@ -124,6 +112,7 @@ class OrchestratorService:
                             ),
                             success=False,
                         )
+                        any_cua_triggered = any_cua_triggered or cua_should_trigger
                         if cua_should_trigger:
                             if self._is_cancel_requested(task.task_id):
                                 task.status = ExecutionStatus.CANCELED
@@ -155,6 +144,7 @@ class OrchestratorService:
                             execution_payload = cua_result.payload
                             cua_error_code = cua_result.error_code
                             if cua_result.success:
+                                any_cua_triggered = True
                                 completed_count += 1
                                 continue
                             failed_count += 1
@@ -188,6 +178,7 @@ class OrchestratorService:
                         execution_payload=execution_payload,
                         success=result.success,
                     )
+                    any_cua_triggered = any_cua_triggered or cua_should_trigger
                     task.status = result.status
                     item.status = "completed" if result.success else "cli_failed"
                     cli_finished_name = "cli_finished" if len(task.planned_actions) == 1 else f"action_{item.order}_cli_finished"
@@ -242,6 +233,7 @@ class OrchestratorService:
                         execution_payload = cua_result.payload
                         cua_error_code = cua_result.error_code
                         if cua_result.success:
+                            any_cua_triggered = True
                             completed_count += 1
                             continue
                         failed_count += 1
@@ -302,10 +294,6 @@ class OrchestratorService:
             elif task.status == ExecutionStatus.CANCELED:
                 execution_status = ExecutionStatus.CANCELED
                 execution_summary = f"planned {len(task.planned_actions)} tasks; {completed_count} completed, {plan_only_count} structured-only, canceled"
-            elif needs_confirmation:
-                execution_status = ExecutionStatus.QUEUED
-                task.status = ExecutionStatus.QUEUED
-                execution_summary = confirmation_message
             else:
                 execution_status = ExecutionStatus.COMPLETED
                 task.status = ExecutionStatus.COMPLETED
@@ -334,15 +322,15 @@ class OrchestratorService:
             standard_action=response_action,
             planned_actions=task.planned_actions,
             structured_payload=response_payload,
-            needs_confirmation=needs_confirmation,
+            needs_confirmation=False,
             confirmation_message=confirmation_message,
-            resolution_candidates=response_payload.get("resolution_candidates", []),
+            resolution_candidates=[],
             execution_status=execution_status,
             execution_summary=execution_summary,
             cli_error_code=cli_error_code,
             cua_error_code=cua_error_code,
             handoff_error_code=handoff_error_code,
-            cua_should_trigger=cua_should_trigger,
+            cua_should_trigger=any_cua_triggered,
             execution_payload=execution_payload,
             accepted_at=task.created_at,
         )
@@ -412,7 +400,7 @@ class OrchestratorService:
                     standard_action=action,
                     status="planned",
                     summary="structured output ready",
-                    needs_confirmation=OrchestratorService._needs_confirmation_for_action(action=action, payload=payload),
+                    needs_confirmation=False,
                 )
             )
         return items
@@ -441,134 +429,10 @@ class OrchestratorService:
         return mapping.get(intent, CapabilityId.UNKNOWN)
 
     @staticmethod
-    def _apply_confirmed_entity(
-        parsed: IntentDecision,
-        structured_payload: dict[str, object],
-        confirmed_entity_id: str,
-    ) -> tuple[IntentDecision, dict[str, object]]:
-        if not confirmed_entity_id:
-            return parsed, structured_payload
-        if parsed.intent_type == IntentType.MULTI_TASK and parsed.planned_actions:
-            return OrchestratorService._apply_confirmed_entity_for_multitask(parsed=parsed, confirmed_entity_id=confirmed_entity_id)
-        if parsed.intent_type != IntentType.MESSAGE_SEND:
-            return parsed, structured_payload
-        next_payload = dict(structured_payload)
-        candidates = next_payload.get("resolution_candidates", [])
-        if isinstance(candidates, list):
-            for item in candidates:
-                if not isinstance(item, dict):
-                    continue
-                if str(item.get("entity_id", "")).strip() != confirmed_entity_id:
-                    continue
-                if str(item.get("entity_type", "")).strip() == "chat":
-                    next_payload["chat_id"] = confirmed_entity_id
-                    next_payload["user_id"] = ""
-                else:
-                    next_payload["user_id"] = confirmed_entity_id
-                    next_payload["chat_id"] = ""
-                next_payload["resolved_name"] = str(item.get("name", "")).strip()
-                next_payload["resolution_status"] = "resolved"
-                next_payload["resolution_method"] = "user_confirmation"
-                next_action = parsed.standard_action.model_copy(update={"payload": next_payload})
-                next_structured = {"intent_type": parsed.intent_type.value, "payload": next_payload}
-                return parsed.model_copy(
-                    update={
-                        "standard_action": next_action,
-                        "structured_command": next_structured,
-                    }
-                ), next_payload
-        return parsed, next_payload
-
-    @staticmethod
-    def _apply_confirmed_entity_for_multitask(
-        parsed: IntentDecision,
-        confirmed_entity_id: str,
-    ) -> tuple[IntentDecision, dict[str, object]]:
-        next_actions: list[StandardAction] = []
-        matched_payload: dict[str, object] | None = None
-        for action in parsed.planned_actions:
-            next_action, next_payload = OrchestratorService._apply_confirmed_entity_to_action(
-                action=action,
-                confirmed_entity_id=confirmed_entity_id,
-            )
-            if next_payload is not None and matched_payload is None:
-                matched_payload = next_payload
-            next_actions.append(next_action)
-
-        if matched_payload is None:
-            return parsed, dict(parsed.planned_actions[0].payload) if parsed.planned_actions else {}
-
-        next_structured = dict(parsed.structured_command)
-        tasks = next_structured.get("tasks")
-        if isinstance(tasks, list):
-            updated_tasks: list[dict[str, object]] = []
-            for index, task in enumerate(tasks):
-                if not isinstance(task, dict):
-                    continue
-                updated_task = dict(task)
-                if index < len(next_actions):
-                    updated_task["payload"] = dict(next_actions[index].payload)
-                    updated_task["capability_id"] = next_actions[index].capability_id.value
-                    updated_task["intent_type"] = next_actions[index].intent_type.value
-                updated_tasks.append(updated_task)
-            next_structured["tasks"] = updated_tasks
-
-        next_standard_action = next_actions[0] if next_actions else parsed.standard_action
-        return parsed.model_copy(
-            update={
-                "standard_action": next_standard_action,
-                "planned_actions": next_actions,
-                "structured_command": next_structured,
-            }
-        ), dict(next_standard_action.payload)
-
-    @staticmethod
-    def _apply_confirmed_entity_to_action(
-        action: StandardAction,
-        confirmed_entity_id: str,
-    ) -> tuple[StandardAction, dict[str, object] | None]:
-        if action.intent_type != IntentType.MESSAGE_SEND:
-            return action, None
-        next_payload = dict(action.payload)
-        candidates = next_payload.get("resolution_candidates", [])
-        if not isinstance(candidates, list):
-            return action, None
-        for item in candidates:
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("entity_id", "")).strip() != confirmed_entity_id:
-                continue
-            if str(item.get("entity_type", "")).strip() == "chat":
-                next_payload["chat_id"] = confirmed_entity_id
-                next_payload["user_id"] = ""
-            else:
-                next_payload["user_id"] = confirmed_entity_id
-                next_payload["chat_id"] = ""
-            next_payload["resolved_name"] = str(item.get("name", "")).strip()
-            next_payload["resolution_status"] = "resolved"
-            next_payload["resolution_method"] = "user_confirmation"
-            return action.model_copy(update={"payload": next_payload}), next_payload
-        return action, None
-
-    @staticmethod
-    def _needs_confirmation_for_action(action: StandardAction, payload: dict[str, object]) -> bool:
-        return str(payload.get("resolution_status", "")).strip() == "needs_confirmation"
-
-    @staticmethod
-    def _first_confirmation_order(planned_actions: list[PlannedActionItem]) -> int:
-        for item in planned_actions:
-            if item.needs_confirmation:
-                return item.order
-        return 1
-
-    @staticmethod
     def _response_payload_for_items(
         planned_actions: list[PlannedActionItem],
         fallback_payload: dict[str, object],
     ) -> dict[str, object]:
-        for item in planned_actions:
-            if item.needs_confirmation:
-                return dict(item.standard_action.payload)
         if planned_actions:
             return dict(planned_actions[0].standard_action.payload)
         return dict(fallback_payload)

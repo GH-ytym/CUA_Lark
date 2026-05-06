@@ -38,7 +38,6 @@ import type {
 	LarkCliAccountSetupPayload,
 	QwenModelProbePayload,
 	QwenModelProbeResponse,
-	ResolutionCandidate,
 	RuntimeCheckResponse,
 	RuntimeConfigPayload,
 } from "../types/execution";
@@ -81,7 +80,6 @@ export function SidebarPage() {
 	const [detail, setDetail] = useState<ExecutionDetailResponse | null>(null);
 	const [lastEvent, setLastEvent] = useState<ExecutionStreamEvent | null>(null);
 	const [error, setError] = useState("");
-	const [selectedCandidateId, setSelectedCandidateId] = useState("");
 	const [traceQuery, setTraceQuery] = useState("");
 	const [runtimeCheck, setRuntimeCheck] = useState<RuntimeCheckResponse | null>(null);
 	const [runtimeLoading, setRuntimeLoading] = useState(false);
@@ -135,7 +133,6 @@ export function SidebarPage() {
 	const issueSummary = useMemo(() => buildIssueSummary(viewState), [viewState]);
 	const currentStatus = detail?.status ?? response?.execution_status ?? response?.initial_status ?? "queued";
 	const canCancel = Boolean(response) && !isTerminalExecutionStatus(currentStatus);
-	const candidates = response?.resolution_candidates ?? [];
 
 	const refreshRuntimeCheck = useCallback(async () => {
 		setRuntimeLoading(true);
@@ -281,13 +278,13 @@ export function SidebarPage() {
 		chatEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
 	}, [chatTurns.length, detail?.updated_at, lastEvent?.sequence, loading]);
 
-	async function submitCommand(confirmedEntityId = "", messageOverride = "", appendUserTurn = true) {
+	async function submitCommand(messageOverride = "", appendUserTurn = true) {
 		const nextMessage = (messageOverride || message).trim();
 		if (!nextMessage) {
 			return;
 		}
 		const now = formatClock(new Date());
-		const nextHistoryId = confirmedEntityId && activeHistoryId ? activeHistoryId : makeId("chat");
+		const nextHistoryId = makeId("chat");
 		setLoading(true);
 		setError("");
 		if (appendUserTurn) {
@@ -310,24 +307,16 @@ export function SidebarPage() {
 				message: nextMessage,
 				session_id: SESSION_ID,
 				user_id: USER_ID,
-				confirmed_entity_id: confirmedEntityId,
 			});
 			setResponse(result);
 			setDetail(null);
 			setLastEvent(null);
 			appendTurn({
 				role: "assistant",
-				content: result.needs_confirmation
-					? result.confirmation_message
-					: result.execution_summary || result.intent_reason || "任务已受理，正在跟踪执行状态。",
+				content: result.execution_summary || result.intent_reason || "任务已受理，正在跟踪执行状态。",
 				createdAt: formatClock(new Date()),
 				taskId: result.task_id,
 			});
-			if (result.needs_confirmation) {
-				setSelectedCandidateId(result.resolution_candidates[0]?.entity_id ?? "");
-			} else {
-				setSelectedCandidateId("");
-			}
 			setHistoryItems((items) =>
 				items.map((item) =>
 					item.id === nextHistoryId
@@ -361,19 +350,6 @@ export function SidebarPage() {
 		}
 	}
 
-	async function handleConfirmCandidate() {
-		if (!selectedCandidateId) {
-			return;
-		}
-		const candidate = candidates.find((item) => item.entity_id === selectedCandidateId);
-		appendTurn({
-			role: "user",
-			content: `确认对象：${candidate?.name ?? selectedCandidateId}`,
-			createdAt: formatClock(new Date()),
-		});
-		await submitCommand(selectedCandidateId, "", false);
-	}
-
 	async function refreshDetail() {
 		if (!response) {
 			return;
@@ -392,7 +368,7 @@ export function SidebarPage() {
 
 	async function retryCurrentCommand() {
 		const retryMessage = detail?.raw_message || response?.structured_payload.raw_message?.toString() || message;
-		await submitCommand("", retryMessage);
+		await submitCommand(retryMessage);
 	}
 
 	async function cancelCurrentTask() {
@@ -422,7 +398,6 @@ export function SidebarPage() {
 		setDetail(null);
 		setLastEvent(null);
 		setError("");
-		setSelectedCandidateId("");
 		setTraceQuery("");
 		setMessage("");
 		setChatTurns([]);
@@ -432,7 +407,6 @@ export function SidebarPage() {
 		setActiveHistoryId(item.id);
 		setMessage(item.prompt);
 		setError("");
-		setSelectedCandidateId("");
 		setResponse(item.response ?? null);
 		setDetail(item.detail ?? null);
 		setLastEvent(null);
@@ -491,13 +465,9 @@ export function SidebarPage() {
 							issueSummary={issueSummary}
 							error={error}
 							tasks={tasks}
-							candidates={candidates}
-							selectedCandidateId={selectedCandidateId}
 							canCancel={canCancel}
 							loading={loading}
 							onTraceQueryChange={setTraceQuery}
-							onCandidateChange={setSelectedCandidateId}
-							onConfirmCandidate={() => void handleConfirmCandidate()}
 							onRefresh={() => void refreshDetail()}
 							onRetry={() => void retryCurrentCommand()}
 							onCancel={() => void cancelCurrentTask()}
@@ -605,13 +575,9 @@ function ChatBubble({
 	issueSummary,
 	error,
 	tasks,
-	candidates,
-	selectedCandidateId,
 	canCancel,
 	loading,
 	onTraceQueryChange,
-	onCandidateChange,
-	onConfirmCandidate,
 	onRefresh,
 	onRetry,
 	onCancel,
@@ -627,13 +593,9 @@ function ChatBubble({
 	issueSummary: ReturnType<typeof buildIssueSummary>;
 	error: string;
 	tasks: ReturnType<typeof buildTaskCards>;
-	candidates: ResolutionCandidate[];
-	selectedCandidateId: string;
 	canCancel: boolean;
 	loading: boolean;
 	onTraceQueryChange: (value: string) => void;
-	onCandidateChange: (value: string) => void;
-	onConfirmCandidate: () => void;
 	onRefresh: () => void;
 	onRetry: () => void;
 	onCancel: () => void;
@@ -684,16 +646,6 @@ function ChatBubble({
 
 						{error ? <p className="error-banner">{error}</p> : null}
 
-						{response.needs_confirmation ? (
-							<ConfirmationBlock
-								candidates={candidates}
-								selectedCandidateId={selectedCandidateId}
-								loading={loading}
-								onCandidateChange={onCandidateChange}
-								onConfirmCandidate={onConfirmCandidate}
-							/>
-						) : null}
-
 						<div className="task-strip">
 							{tasks.map((task) => (
 								<div className={`task-chip task-chip--${task.status}`} key={task.id}>
@@ -705,71 +657,13 @@ function ChatBubble({
 
 						<div className="assistant-grid">
 							<StatusTimeline steps={timelineSteps} />
-							<ResultDetail title={response.needs_confirmation ? "待确认详情" : "执行详情"} items={detailItems} />
+							<ResultDetail title="执行详情" items={detailItems} />
 						</div>
 						<DebugTracePanel items={traceItems} query={traceQuery} onQueryChange={onTraceQueryChange} />
 					</div>
 				) : null}
 			</div>
 		</article>
-	);
-}
-
-function ConfirmationBlock({
-	candidates,
-	selectedCandidateId,
-	loading,
-	onCandidateChange,
-	onConfirmCandidate,
-}: {
-	candidates: ResolutionCandidate[];
-	selectedCandidateId: string;
-	loading: boolean;
-	onCandidateChange: (value: string) => void;
-	onConfirmCandidate: () => void;
-}) {
-	if (candidates.length === 0) {
-		return (
-			<div className="confirmation-empty">
-				<strong>没有可确认的候选对象</strong>
-				<p>请补齐飞书通讯录权限，或直接输入明确的 open_id / chat_id。</p>
-				<code>lark-cli auth login --domain im,contact</code>
-			</div>
-		);
-	}
-	return (
-		<div className="confirmation-panel">
-			<div className="panel-title-row">
-				<div>
-					<p className="section-kicker">Confirm</p>
-					<h2>选择目标对象</h2>
-				</div>
-			</div>
-			<div className="candidate-list" role="list">
-				{candidates.map((candidate) => (
-					<label className="candidate-card" key={candidate.entity_id}>
-						<input
-							type="radio"
-							name="candidate"
-							value={candidate.entity_id}
-							checked={selectedCandidateId === candidate.entity_id}
-							onChange={() => onCandidateChange(candidate.entity_id)}
-						/>
-						<div>
-							<strong>{candidate.name}</strong>
-							<p>
-								{candidate.entity_type} · score {candidate.score.toFixed(4)}
-							</p>
-						</div>
-					</label>
-				))}
-			</div>
-			<div className="composer-actions">
-				<button type="button" className="primary-button" disabled={loading || !selectedCandidateId} onClick={onConfirmCandidate}>
-					确认并继续
-				</button>
-			</div>
-		</div>
 	);
 }
 

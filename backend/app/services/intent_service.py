@@ -24,6 +24,7 @@ from app.domain.enums import CapabilityId, ExecutorType, IntentType
 from app.domain.models import StandardAction
 from app.schemas.chat import ParsePreviewResponse
 from app.services.recipient_resolver import RecipientResolver
+from shared.error_codes import UnifiedErrorCode
 from shared.error_codes import normalize_error_code
 
 MESSAGE_CAPABILITIES_WITH_TARGET = {
@@ -705,9 +706,11 @@ class IntentService:
 
         resolved["attendee_ids"] = self._dedupe_list(attendee_ids)
         if unresolved_count:
-            resolved["resolution_status"] = "needs_confirmation"
+            resolved["resolution_status"] = "handoff_required"
             resolved["resolution_reason"] = "calendar_attendee_ambiguous" if candidates else "calendar_attendee_unresolved"
             resolved["resolution_candidates"] = candidates[:3]
+            resolved["handoff_error_code"] = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+            resolved["handoff_reason"] = "calendar attendee resolution requires current Feishu UI context"
         elif unresolved_names:
             resolved["resolution_status"] = "resolved"
             resolved["resolution_method"] = "calendar_recipient_resolver"
@@ -732,8 +735,10 @@ class IntentService:
         raw_candidates = one.get("resolution_candidates")
         if isinstance(raw_candidates, list):
             resolved["resolution_candidates"] = [item for item in raw_candidates if isinstance(item, dict)][:3]
-        resolved["resolution_status"] = "needs_confirmation"
+        resolved["resolution_status"] = "handoff_required"
         resolved["resolution_reason"] = "calendar_user_ambiguous" if resolved.get("resolution_candidates") else "calendar_user_unresolved"
+        resolved["handoff_error_code"] = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+        resolved["handoff_reason"] = "calendar freebusy target requires current Feishu UI context"
         return resolved
 
     def _validate_request_plan_payload(self, normalized: dict[str, object] | None) -> list[str]:

@@ -1,14 +1,19 @@
 """Application settings for API, security, and execution behavior."""
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+ENV_FILE = PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
     """Typed settings loaded from environment variables."""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=str(ENV_FILE), env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "CUA-Lark"
     app_env: str = "development"
@@ -25,6 +30,9 @@ class Settings(BaseSettings):
     lark_cli_timeout_seconds: int = 20
     lark_cli_workdir: str = ""
     cua_max_steps: int = 20
+    cua_model_api_key: str = ""
+    cua_model_api_base: str = ""
+    cua_model_name: str = ""
 
     dashscope_api_key: str = ""
     qwen_chat_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"

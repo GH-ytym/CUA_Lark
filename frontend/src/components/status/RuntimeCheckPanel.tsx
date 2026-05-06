@@ -220,6 +220,13 @@ export function RuntimeCheckPanel({
 					onChange={(value) => updateField("cua_model_api_key", value)}
 				/>
 				<RuntimeInput
+					label="Base URL"
+					value={form.cua_model_api_base}
+					placeholder="https://ark.cn-beijing.volces.com/api/v3"
+					hint="豆包 Ark OpenAI-compatible base URL。"
+					onChange={(value) => updateField("cua_model_api_base", value)}
+				/>
+				<RuntimeInput
 					label="视觉模型"
 					value={form.cua_model_name}
 					placeholder="doubao-vision-pro-32k"

@@ -13,50 +13,34 @@ class AgentLoopRunner:
         self.llm_request = llm_request_func
         self.action_summary = []
         self.step_count = 0
-        self.used_memory_ids = []
-        self.written_memory_ids = []
-        self.memory_scope = {}
         
-    def run(
-        self,
-        current_goal: str,
-        max_steps: int = 15,
-        memory_scope: dict[str, Any] | None = None,
-        fallback_context: dict[str, Any] | None = None,
-    ) -> bool:
+    def run(self, current_goal: str, max_steps: int = 15) -> bool:
         self.step_count = 0
         self.action_summary = []
-        self.used_memory_ids = []
-        self.written_memory_ids = []
-        self.memory_scope = memory_scope or {}
-        fallback_context = fallback_context or {}
+        
+        # 加载最新的本地记忆
+        global_memory._load_from_disk()
         
         # 初始截屏
         b64_img = capture_screen_base64()
         self.logger.save_screenshot(b64_img, self.step_count)
         
         messages = ContextBuilder.build_initial_messages(current_goal)
-        prompt_memories = global_memory.get_recent_memories(10, scope=self.memory_scope)
-        self.used_memory_ids = [memory.memory_id for memory in prompt_memories]
-        memory_prompt = global_memory.format_for_prompt(10, scope=self.memory_scope)
         if b64_img:
+            # 初始请求包含完整记忆上下文
+            memory_content = global_memory.format_for_prompt(15)
             messages[-1]["content"] = [
-                {"type": "text", "text": f"{current_goal}\n\n{memory_prompt}"},
+                #{"type": "text", "text": f"{current_goal}\n\n{global_memory.format_for_prompt(10)}"},
+                {"type": "text", "text": f"{current_goal}\n\n{memory_content}"},
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_img}"}}
             ]
         
         # 记录任务目标记忆
-        goal_memory = global_memory.add_memory(
+        global_memory.add_memory(
             memory_type=MemoryType.GOAL,
             content=f"开始执行任务: {current_goal}",
-            context={
-                **self.memory_scope,
-                **fallback_context,
-                "used_memory_ids": self.used_memory_ids,
-            },
             importance=0.8
         )
-        self.written_memory_ids.append(goal_memory.memory_id)
             
         while self.step_count < max_steps:
             self.step_count += 1
@@ -73,33 +57,21 @@ class AgentLoopRunner:
             
             # 记录动作记忆
             for action in res["executed_actions"]:
-                action_memory = global_memory.add_memory(
+                global_memory.add_memory(
                     memory_type=MemoryType.ACTION,
                     content=action,
-                    context={
-                        **self.memory_scope,
-                        **fallback_context,
-                        "success": res["success"],
-                        "step": self.step_count,
-                    },
+                    context={"success": res["success"], "step": self.step_count},
                     importance=0.6
                 )
-                self.written_memory_ids.append(action_memory.memory_id)
             
             # 如果执行失败，记录失败记忆
             if not res["success"]:
-                failure_memory = global_memory.add_memory(
+                global_memory.add_memory(
                     memory_type=MemoryType.FAILURE,
                     content=f"动作执行失败: {res.get('error', '未知错误')}",
-                    context={
-                        **self.memory_scope,
-                        **fallback_context,
-                        "actions": actions,
-                        "step": self.step_count,
-                    },
+                    context={"actions": actions, "step": self.step_count},
                     importance=0.9
                 )
-                self.written_memory_ids.append(failure_memory.memory_id)
             
             # 4. 眼: 等待并反馈
             time.sleep(1.0)
@@ -107,18 +79,12 @@ class AgentLoopRunner:
             
             # 记录观察结果记忆
             if b64_img:
-                observation_memory = global_memory.add_memory(
+                global_memory.add_memory(
                     memory_type=MemoryType.OBSERVATION,
                     content="获取当前屏幕截图",
-                    context={
-                        **self.memory_scope,
-                        **fallback_context,
-                        "has_image": True,
-                        "step": self.step_count,
-                    },
+                    context={"has_image": True},
                     importance=0.4
                 )
-                self.written_memory_ids.append(observation_memory.memory_id)
             if b64_img:
                 b64_img=f"data:image/jpeg;base64,{b64_img}"
             img_path = self.logger.save_screenshot(b64_img, self.step_count)
@@ -151,18 +117,12 @@ class AgentLoopRunner:
                     "step": self.step_count, "action": "DONE", "output": model_reply
                 })
                 # 记录任务成功记忆
-                success_memory = global_memory.add_memory(
+                global_memory.add_memory(
                     memory_type=MemoryType.SUCCESS,
                     content=f"任务完成: {current_goal}",
-                    context={
-                        **self.memory_scope,
-                        **fallback_context,
-                        "steps": self.step_count,
-                        "actions": self.action_summary,
-                    },
+                    context={"steps": self.step_count, "actions": self.action_summary},
                     importance=0.9
                 )
-                self.written_memory_ids.append(success_memory.memory_id)
                 return True
 
         logging.warning("达到了最大循环步数限制。")

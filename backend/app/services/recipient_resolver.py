@@ -18,6 +18,7 @@ except ImportError:  # pragma: no cover - optional dependency
     fuzz = None
 
 from app.core.config import get_settings
+from shared.error_codes import UnifiedErrorCode
 
 
 @dataclass(frozen=True)
@@ -76,7 +77,7 @@ class RecipientResolver:
             return resolved
         hint = str(payload.get("chat_hint", "")).strip()
         if not hint:
-            return self._mark_needs_confirmation(
+            return self._mark_handoff_required(
                 payload=payload,
                 reason="missing_hint",
                 candidates=[],
@@ -92,14 +93,14 @@ class RecipientResolver:
         if not candidates:
             candidates = self._search_cli_contacts(hint)
         if not candidates:
-            return self._mark_needs_confirmation(
+            return self._mark_handoff_required(
                 payload=payload,
                 reason="no_candidate",
                 candidates=[],
             )
         selected_index = self._pick_by_rules(hint, candidates)
         if selected_index is None:
-            return self._mark_needs_confirmation(
+            return self._mark_handoff_required(
                 payload=payload,
                 reason="ambiguous_or_low_confidence",
                 candidates=candidates,
@@ -387,13 +388,13 @@ class RecipientResolver:
         return [item for item in variants if item]
 
     @staticmethod
-    def _mark_needs_confirmation(
+    def _mark_handoff_required(
         payload: dict[str, Any],
         reason: str,
         candidates: list[RecipientCandidate],
     ) -> dict[str, Any]:
         unresolved = dict(payload)
-        unresolved["resolution_status"] = "needs_confirmation"
+        unresolved["resolution_status"] = "handoff_required"
         unresolved["resolution_reason"] = reason
         unresolved["resolution_candidates"] = [
             {
@@ -404,6 +405,8 @@ class RecipientResolver:
             }
             for item in candidates[:3]
         ]
+        unresolved["handoff_error_code"] = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+        unresolved["handoff_reason"] = "recipient resolution requires current Feishu UI context"
         return unresolved
 
     @staticmethod
