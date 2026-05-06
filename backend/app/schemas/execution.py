@@ -1,6 +1,7 @@
 """Execution detail schemas exposed to frontend and integration tooling."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -26,10 +27,24 @@ class ExecutionDetailResponse(BaseModel):
     updated_at: datetime
 
 
-class CancelExecutionResponse(BaseModel):
-    """Response returned when a cancellation request is accepted or ignored."""
+class ExecutionStreamEvent(BaseModel):
+    """One ordered SSE payload consumed by the React sidebar."""
+
+    event: Literal["snapshot", "step", "terminal", "error"]
+    task_id: str
+    status: ExecutionStatus
+    sequence: int
+    summary: str = ""
+    step: TaskStep | None = None
+    detail: ExecutionDetailResponse | None = None
+    emitted_at: datetime
+
+
+class ExecutionActionResponse(BaseModel):
+    """Response returned by C-side control actions such as cancel."""
 
     task_id: str
     status: ExecutionStatus
-    canceled: bool
-    summary: str = ""
+    canceled: bool = False
+    summary: str
+    detail: ExecutionDetailResponse

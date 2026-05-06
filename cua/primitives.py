@@ -1,11 +1,17 @@
 import pyautogui
-import win32gui
-import win32con
-import win32process
 import pyperclip
 from typing import Dict, Optional, Tuple
 import time
 import os
+
+try:
+    import win32gui
+    import win32con
+    import win32process
+except ImportError:
+    win32gui = None
+    win32con = None
+    win32process = None
 
 pyautogui.FAILSAFE = True
 
@@ -23,6 +29,8 @@ def reset_user_activity_flag() -> None:
 
 
 def is_foreground_window(hwnd: int) -> bool:
+    if win32gui is None:
+        return False
     return win32gui.GetForegroundWindow() == hwnd
 
 
@@ -33,6 +41,9 @@ def focus_and_maximize(app_identifier: str = "飞书", match_by: str = "title") 
     :param match_by: 匹配方式：title(窗口标题), process_name(进程名), class_name(窗口类名)
     :return: (操作成功返回True，失败返回False, 匹配到的窗口句柄)
     """
+    if win32gui is None or win32con is None or win32process is None:
+        return False, None
+
     target_hwnd = None
     
     def window_enum_callback(hwnd, extra):

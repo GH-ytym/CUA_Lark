@@ -1,6 +1,7 @@
 import asyncio
 from pathlib import Path
 import sqlite3
+import subprocess
 
 from app.services.recipient_resolver import RecipientResolver
 
@@ -111,6 +112,61 @@ def test_missing_hint_needs_confirmation(tmp_path: Path) -> None:
     resolved = asyncio.run(resolver.resolve(payload=payload))
     assert resolved["resolution_status"] == "needs_confirmation"
     assert resolved["resolution_reason"] == "missing_hint"
+
+
+def test_resolve_current_authorized_user_when_directory_missing(monkeypatch, tmp_path: Path) -> None:
+    resolver = RecipientResolver(sqlite_path=str(tmp_path / "missing.db"))
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='{"userName":"刘海俊","userOpenId":"ou_self","identity":"user"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr("app.services.recipient_resolver.subprocess.run", fake_run)
+
+    payload = {"chat_hint": "刘海俊", "chat_id": "", "user_id": "", "text": "自测"}
+    resolved = asyncio.run(resolver.resolve(payload=payload))
+
+    assert resolved["user_id"] == "ou_self"
+    assert resolved["resolved_name"] == "刘海俊"
+    assert resolved["resolution_status"] == "resolved"
+
+
+def test_resolve_contact_by_cli_search_when_directory_missing(monkeypatch, tmp_path: Path) -> None:
+    resolver = RecipientResolver(sqlite_path=str(tmp_path / "missing.db"))
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if command[1:3] == ["auth", "status"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout='{"userName":"刘海俊","userOpenId":"ou_self","identity":"user"}',
+                stderr="",
+            )
+        if command[1:3] == ["contact", "+search-user"]:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=(
+                    '{"ok":true,"data":{"users":[{"open_id":"ou_wang","localized_name":"王建国",'
+                    '"match_segments":["王建国"]}]}}'
+                ),
+                stderr="",
+            )
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected command")
+
+    monkeypatch.setattr("app.services.recipient_resolver.subprocess.run", fake_run)
+
+    payload = {"chat_hint": "王建国", "chat_id": "", "user_id": "", "text": "你好"}
+    resolved = asyncio.run(resolver.resolve(payload=payload))
+
+    assert resolved["user_id"] == "ou_wang"
+    assert resolved["resolved_name"] == "王建国"
+    assert resolved["resolution_method"] == "rules"
+    assert resolved["resolution_status"] == "resolved"
 
 
 def test_resolution_is_stable_under_repeated_runs(tmp_path: Path) -> None:

@@ -293,3 +293,29 @@ def test_llm_contract_supports_message_then_docs_sequence() -> None:
     assert decision.planned_actions[0].payload["user_id"] == "ou_mei"
     assert decision.planned_actions[1].capability_id == CapabilityId.DOC_CREATE
     assert decision.planned_actions[1].payload["title"] == "小组消息跟进"
+
+
+def test_message_send_rule_fallback_when_qwen_fails() -> None:
+    service = IntentService()
+    service.settings.dashscope_api_key = "test-key"
+
+    async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = dict(kwargs["payload"])
+        if payload.get("chat_hint") == "刘海俊":
+            payload["user_id"] = "ou_liu"
+            payload["resolution_status"] = "resolved"
+        return payload
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return "", "network_error"
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("给刘海俊发消息：CUA-Lark 后端链路自测"))
+
+    assert decision.parse_source == "rules_message_send"
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert decision.standard_action.payload["chat_hint"] == "刘海俊"
+    assert decision.standard_action.payload["text"] == "CUA-Lark 后端链路自测"
+    assert decision.standard_action.payload["user_id"] == "ou_liu"

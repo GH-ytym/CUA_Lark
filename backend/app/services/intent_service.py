@@ -76,8 +76,9 @@ class IntentService:
 
     async def parse(self, message: str, context_hint: str = "") -> IntentDecision:
         """Parse one natural-language request into a standard action."""
+        fallback_decision = await self._parse_message_send_by_rules(message)
         if not self.settings.dashscope_api_key:
-            return self._build_unknown_decision(
+            return fallback_decision or self._build_unknown_decision(
                 reason="qwen api key is not configured",
                 parse_source="llm_unavailable",
             )
@@ -87,7 +88,7 @@ class IntentService:
             return decision
 
         parse_source = "qwen_required" if self.settings.intent_require_llm else "qwen_failed"
-        return self._build_unknown_decision(
+        return fallback_decision or self._build_unknown_decision(
             reason="qwen parse failed",
             parse_source=parse_source,
         )
@@ -95,6 +96,35 @@ class IntentService:
     async def _parse_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
         """Backward-compatible alias for the planner parse path."""
         return await self._parse_request_plan_with_llm(message=message, context_hint=context_hint)
+
+    async def _parse_message_send_by_rules(self, message: str) -> IntentDecision | None:
+        """Parse common Chinese message-send commands without depending on LLM availability."""
+        text = str(message or "").strip()
+        if not text:
+            return None
+        pattern = re.compile(
+            r"^(?:请|帮我|麻烦)?(?:给|向)(?P<target>[^:：，,。\\s]{1,40})(?:发|发送|说|转告|通知)(?:消息)?[：:,，\\s]*(?P<body>.+)$"
+        )
+        match = pattern.search(text)
+        if match is None:
+            return None
+        target = match.group("target").strip(" ：:，,。")
+        body = match.group("body").strip(" ：:，,。\"“”'`")
+        if not target or not body:
+            return None
+        normalized = {
+            "capability_id": CapabilityId.IM_MESSAGE_SEND.value,
+            "reason": "parsed by local message-send rules",
+            "action_plan": ["定位接收对象", "发送消息", "返回执行结果"],
+            "payload": {"chat_hint": target, "chat_id": "", "user_id": "", "text": body, "identity": "user"},
+            "missing_fields": [],
+        }
+        return await self._build_decision_from_normalized(
+            normalized=normalized,
+            raw_llm_payload={"rule": "message_send_zh", "message": text},
+            raw_message=text,
+            parse_source="rules_message_send",
+        )
 
     async def _parse_request_plan_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
         """Ask the model to plan the full request, including ordered multi-task output."""
@@ -1088,4 +1118,3 @@ class IntentService:
             executor_hint=self._executor_for(capability_id),
             intent_type=intent,
         )
-
