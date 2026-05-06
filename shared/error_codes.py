@@ -53,16 +53,6 @@ ERROR_CODE_CATALOG: tuple[ErrorCodeDescriptor, ...] = tuple(
     for code in UnifiedErrorCode
 )
 
-CLI_TRIGGER_ERROR_CODES: tuple[int, ...] = (
-    int(UnifiedErrorCode.RATE_LIMIT),
-    int(UnifiedErrorCode.UNSUPPORTED),
-    int(UnifiedErrorCode.PERMISSION_DENIED),
-    int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT),
-    int(UnifiedErrorCode.EXECUTION_ERROR),
-    int(UnifiedErrorCode.TIMEOUT),
-    int(UnifiedErrorCode.HANDOFF_REQUIRED),
-)
-
 CUA_ABORT_ERROR_CODES: tuple[int, ...] = (
     int(UnifiedErrorCode.TIMEOUT),
     int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE),
@@ -163,4 +153,3 @@ def error_code_catalog_payload() -> list[dict[str, object]]:
         {"code": item.code, "name": item.name, "description": item.description}
         for item in ERROR_CODE_CATALOG
     ]
-

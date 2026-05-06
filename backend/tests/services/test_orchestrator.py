@@ -5,7 +5,7 @@ from app.domain.models import ExecutorResult, StandardAction
 from app.schemas.chat import ExecuteCommandRequest
 from app.services.intent_service import IntentDecision
 from app.services.orchestrator import OrchestratorService
-from shared.error_codes import CLI_TRIGGER_ERROR_CODES, UnifiedErrorCode
+from shared.error_codes import UnifiedErrorCode
 
 
 def request(message: str = "给项目群发今晚发布", confirmed_entity_id: str = "") -> ExecuteCommandRequest:
@@ -215,15 +215,12 @@ def test_orchestrator_marks_failed_when_cua_fallback_fails() -> None:
     assert response.execution_payload["error"]["message"] == "window not found"
 
 
-def test_should_trigger_cua_aligns_with_trigger_rule_evaluator() -> None:
-    assert OrchestratorService._load_trigger_rule_evaluator() is not None
-    for error_code in CLI_TRIGGER_ERROR_CODES:
-        assert OrchestratorService._should_trigger_cua(
-            error_code,
-            execution_payload={"error": {"code": error_code}},
-            success=False,
-        )
-
+def test_should_trigger_cua_uses_standard_error_or_failure_status() -> None:
+    assert OrchestratorService._should_trigger_cua(
+        int(UnifiedErrorCode.PERMISSION_DENIED),
+        execution_payload={"error": {"code": int(UnifiedErrorCode.PERMISSION_DENIED)}},
+        success=False,
+    )
     assert (
         OrchestratorService._should_trigger_cua(
             None,
@@ -232,6 +229,95 @@ def test_should_trigger_cua_aligns_with_trigger_rule_evaluator() -> None:
         )
         is False
     )
+    assert OrchestratorService._should_trigger_cua(
+        None,
+        execution_payload={"summary": "executor failed without a standard code"},
+        success=False,
+    )
+    assert (
+        OrchestratorService._should_trigger_cua(
+            int(UnifiedErrorCode.NONE),
+            execution_payload={},
+            success=False,
+        )
+        is False
+    )
+
+
+def test_orchestrator_structured_error_code_hands_off_to_cua_without_cli() -> None:
+    service = OrchestratorService()
+    payload = {
+        "chat_hint": "刚刚那个人",
+        "chat_id": "",
+        "user_id": "",
+        "text": "hello",
+        "resolution_status": "resolved",
+    }
+    action = StandardAction(
+        capability_id=CapabilityId.IM_MESSAGE_SEND,
+        payload=payload,
+        executor_hint=ExecutorType.CLI,
+        intent_type=IntentType.MESSAGE_SEND,
+        handoff_error_code=int(UnifiedErrorCode.HANDOFF_REQUIRED),
+        handoff_reason="target must be selected from recent Feishu UI context",
+    )
+    cli_called = False
+    cua_calls: list[dict[str, object]] = []
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return IntentDecision(
+            intent_type=IntentType.MESSAGE_SEND,
+            reason="requires UI context",
+            action_plan=["handoff to CUA"],
+            selected_executor=ExecutorType.CLI,
+            parse_source="qwen_plan",
+            standard_action=action,
+            structured_command={"intent_type": IntentType.MESSAGE_SEND.value, "payload": payload},
+        )
+
+    def fake_execute_action(*_: object, **__: object) -> ExecutorResult:
+        nonlocal cli_called
+        cli_called = True
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="should not run",
+        )
+
+    def fake_cua_execute_fallback(*_: object, **kwargs: object) -> ExecutorResult:
+        cua_calls.append(dict(kwargs))
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback"},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request(message="给刚刚那个人发消息：hello")))
+    task = service.get_task(response.task_id)
+
+    assert cli_called is False
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cua_should_trigger is True
+    assert response.cli_error_code is None
+    assert response.handoff_error_code == int(UnifiedErrorCode.HANDOFF_REQUIRED)
+    assert response.execution_payload["mode"] == "cua_fallback"
+    assert cua_calls[0]["cli_error_code"] == int(UnifiedErrorCode.HANDOFF_REQUIRED)
+    assert cua_calls[0]["trigger_source"] == "structured"
+    assert cua_calls[0]["cli_payload"]["mode"] == "structured_handoff"
+    assert task is not None
+    assert [step.name for step in task.steps] == [
+        "task_created",
+        "intent_parsed",
+        "cua_started",
+        "cua_finished",
+    ]
 
 
 def test_orchestrator_multitask_success_auto_advances_in_order() -> None:

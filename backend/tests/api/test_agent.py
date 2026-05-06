@@ -59,7 +59,6 @@ def test_get_cua_boundary_returns_integer_catalog() -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["cli_trigger_error_codes"] == [1, 2, 3, 4, 5, 6, 7]
     assert data["cua_abort_error_codes"] == [6, 8, 9]
     assert any(item["code"] == 3 and item["name"] == "PERMISSION_DENIED" for item in data["error_code_catalog"])
 

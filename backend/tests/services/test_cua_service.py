@@ -145,7 +145,41 @@ def test_cua_service_maps_unknown_failures_to_execution_error(monkeypatch) -> No
 
     assert result.error_code == int(UnifiedErrorCode.EXECUTION_ERROR)
     assert result.payload["error"]["code"] == int(UnifiedErrorCode.EXECUTION_ERROR)
+    assert result.payload["triggered_by"]["source"] == "cli"
     assert result.payload["triggered_by"]["cli_error_code"] == int(UnifiedErrorCode.PERMISSION_DENIED)
+
+
+def test_cua_service_accepts_structured_trigger_source(monkeypatch) -> None:
+    class FakeResponse:
+        success = True
+        message = "done"
+
+        def model_dump(self) -> dict[str, object]:
+            return {"success": True, "message": self.message}
+
+    class FakeExecutor:
+        def run(self, request: _FakeRequest) -> FakeResponse:
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        CuaService,
+        "_load_executor_components",
+        staticmethod(lambda: (FakeExecutor, _FakeRequest)),
+    )
+
+    result = CuaService().execute_fallback(
+        action=_action(),
+        raw_message="给刚刚那个人发消息：hello",
+        task_id="task-structured",
+        cli_error_code=int(UnifiedErrorCode.HANDOFF_REQUIRED),
+        cli_payload={"mode": "structured_handoff"},
+        trigger_source="structured",
+    )
+
+    assert result.success is True
+    assert _FakeRequest.last_kwargs["trigger"]["source"] == "structured"
+    assert result.payload["triggered_by"]["source"] == "structured"
+    assert result.payload["fallback_request"]["triggered_by"]["source"] == "structured"
 
 
 def test_cua_service_passes_through_memory_metadata(monkeypatch) -> None:

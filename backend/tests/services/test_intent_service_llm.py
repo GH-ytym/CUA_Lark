@@ -3,6 +3,7 @@ import json
 
 from app.domain.enums import CapabilityId, ExecutorType, IntentType
 from app.services.intent_service import IntentService
+from shared.error_codes import UnifiedErrorCode
 
 
 def _make_service() -> IntentService:
@@ -48,6 +49,45 @@ def test_llm_message_send_structures_payload_and_runs_resolver() -> None:
     assert decision.standard_action.payload["chat_id"] == "oc_proj"
     assert decision.standard_action.payload["text"] == "今晚九点发布"
     assert decision.raw_llm_payload["capability_id"] == "im.message_send"
+
+
+def test_llm_structured_error_code_is_preserved_on_standard_action() -> None:
+    service = _make_service()
+
+    async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = dict(kwargs["payload"])
+        payload["resolution_status"] = "resolved"
+        return payload
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "t": [
+                        {
+                            "m": "给刚刚那个人发消息：hello",
+                            "c": "im.message_send",
+                            "p": {"chat_hint": "刚刚那个人", "text": "hello"},
+                            "miss": ["chat_hint"],
+                            "ec": int(UnifiedErrorCode.HANDOFF_REQUIRED),
+                            "er": "needs recent Feishu UI context",
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("给刚刚那个人发消息：hello"))
+
+    assert decision.standard_action.capability_id == CapabilityId.IM_MESSAGE_SEND
+    assert decision.standard_action.handoff_error_code == int(UnifiedErrorCode.HANDOFF_REQUIRED)
+    assert decision.standard_action.handoff_reason == "needs recent Feishu UI context"
+    assert decision.structured_command["payload"]["chat_hint"] == "刚刚那个人"
 
 
 def test_llm_message_search_structures_payload() -> None:

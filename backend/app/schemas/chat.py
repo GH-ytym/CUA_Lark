@@ -53,6 +53,7 @@ class ExecuteCommandResponse(BaseModel):
     execution_status: ExecutionStatus = ExecutionStatus.QUEUED
     execution_summary: str = ""
     cli_error_code: int | None = None
+    handoff_error_code: int | None = None
     cua_error_code: int | None = None
     cua_should_trigger: bool = False
     execution_payload: dict[str, object] = Field(default_factory=dict)
@@ -75,7 +76,6 @@ class StateMachineResponse(BaseModel):
 class CuaBoundaryResponse(BaseModel):
     """Boundary rules exported from backend contract for B/C alignment."""
 
-    cli_trigger_error_codes: list[int]
     cua_abort_error_codes: list[int]
     error_code_catalog: list["ErrorCodeCatalogEntry"]
 

@@ -1,6 +1,6 @@
 import subprocess
 
-from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
+from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import StandardAction
 from app.services.lark_cli_service import LarkCliService
 from shared.error_codes import UnifiedErrorCode
@@ -18,9 +18,13 @@ def test_execute_success_uses_unified_payload(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = service.execute(
-        intent=IntentType.MESSAGE_SEND,
-        payload={"chat_id": "oc_demo", "user_id": "", "text": "hello"},
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.IM_MESSAGE_SEND,
+            payload={"chat_id": "oc_demo", "user_id": "", "text": "hello"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        ),
         dry_run=True,
     )
     assert result.success is True
@@ -453,9 +457,13 @@ def test_doc_update_requires_doc_token() -> None:
 
 def test_execute_invalid_payload_returns_result_invalid() -> None:
     service = LarkCliService()
-    result = service.execute(
-        intent=IntentType.MESSAGE_SEND,
-        payload={"chat_id": "", "user_id": "", "text": "hello"},
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.IM_MESSAGE_SEND,
+            payload={"chat_id": "", "user_id": "", "text": "hello"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        ),
         dry_run=True,
     )
     assert result.success is False
@@ -477,9 +485,13 @@ def test_execute_non_zero_exit_maps_error_code(monkeypatch) -> None:
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = service.execute(
-        intent=IntentType.MESSAGE_SEND,
-        payload={"chat_id": "oc_demo", "user_id": "", "text": "hello"},
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.IM_MESSAGE_SEND,
+            payload={"chat_id": "oc_demo", "user_id": "", "text": "hello"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        ),
         dry_run=True,
     )
     assert result.success is False
@@ -498,9 +510,13 @@ def test_execute_timeout_returns_timeout(monkeypatch) -> None:
         raise subprocess.TimeoutExpired(cmd=["lark-cli"], timeout=1, stderr=b"timeout")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    result = service.execute(
-        intent=IntentType.MESSAGE_SEND,
-        payload={"chat_id": "oc_demo", "user_id": "", "text": "hello"},
+    result = service.execute_action(
+        action=StandardAction(
+            capability_id=CapabilityId.IM_MESSAGE_SEND,
+            payload={"chat_id": "oc_demo", "user_id": "", "text": "hello"},
+            executor_hint=ExecutorType.CLI,
+            intent_type=IntentType.MESSAGE_SEND,
+        ),
         dry_run=True,
     )
     assert result.success is False

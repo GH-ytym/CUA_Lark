@@ -25,6 +25,7 @@ class CuaService:
         cli_error_code: int | None,
         cli_payload: dict[str, object] | None = None,
         retry_attempts: int = 1,
+        trigger_source: str = "cli",
     ) -> ExecutorResult:
         """Trigger the desktop CUA flow after CLI failure and return one unified result."""
         request_payload = self._build_request_payload(
@@ -36,6 +37,7 @@ class CuaService:
             cli_error_code=cli_error_code,
             cli_payload=cli_payload,
             retry_attempts=retry_attempts,
+            trigger_source=trigger_source,
         )
         fallback_request = self._build_fallback_request(
             action=action,
@@ -46,6 +48,7 @@ class CuaService:
             cli_error_code=cli_error_code,
             cli_payload=cli_payload,
             request_payload=request_payload,
+            trigger_source=trigger_source,
         )
         try:
             executor_cls, request_cls = self._load_executor_components()
@@ -64,7 +67,7 @@ class CuaService:
                     "task_id": task_id,
                     "fallback_request": fallback_request,
                     "request": request_payload,
-                    "triggered_by": self._build_triggered_by(cli_error_code),
+                    "triggered_by": self._build_triggered_by(cli_error_code, source=trigger_source),
                     "cli_payload": cli_payload or {},
                     "cua": {"memory": self._empty_memory_payload(request_payload)},
                     "error": {
@@ -86,7 +89,7 @@ class CuaService:
             "task_id": task_id,
             "fallback_request": fallback_request,
             "request": request_payload,
-            "triggered_by": self._build_triggered_by(cli_error_code),
+            "triggered_by": self._build_triggered_by(cli_error_code, source=trigger_source),
             "cli_payload": cli_payload or {},
             "cua_response": response_payload,
             "cua": {"memory": self._extract_memory_payload(response_payload, request_payload)},
@@ -118,6 +121,7 @@ class CuaService:
         cli_error_code: int | None,
         cli_payload: dict[str, object] | None,
         retry_attempts: int,
+        trigger_source: str,
     ) -> dict[str, object]:
         cli_error_name_text = cli_error_name(cli_error_code)
         action_id = action.capability_id.value
@@ -134,7 +138,7 @@ class CuaService:
                 "payload": CuaService._build_cua_action_payload(action),
             },
             "trigger": {
-                "source": "cli",
+                "source": CuaService._normalize_trigger_source(trigger_source),
                 "code": cli_error_code,
                 "name": cli_error_name_text,
                 "attempts": max(1, int(retry_attempts)),
@@ -161,6 +165,7 @@ class CuaService:
         cli_error_code: int | None,
         cli_payload: dict[str, object] | None,
         request_payload: dict[str, object],
+        trigger_source: str,
     ) -> dict[str, object]:
         return {
             "task_id": task_id,
@@ -172,16 +177,22 @@ class CuaService:
             "cli_error_code": cli_error_code,
             "cli_error_name": cli_error_name(cli_error_code),
             "cli_payload": cli_payload or {},
-            "triggered_by": CuaService._build_triggered_by(cli_error_code),
+            "triggered_by": CuaService._build_triggered_by(cli_error_code, source=trigger_source),
             "cua_request": request_payload,
         }
 
     @staticmethod
-    def _build_triggered_by(cli_error_code: int | None) -> dict[str, object]:
+    def _build_triggered_by(cli_error_code: int | None, source: str = "cli") -> dict[str, object]:
         return {
+            "source": CuaService._normalize_trigger_source(source),
             "cli_error_code": cli_error_code,
             "cli_error_name": cli_error_name(cli_error_code),
         }
+
+    @staticmethod
+    def _normalize_trigger_source(source: str) -> str:
+        normalized = str(source).strip().lower()
+        return normalized if normalized in {"cli", "structured"} else "cli"
 
     @staticmethod
     def _empty_memory_payload(request_payload: dict[str, object]) -> dict[str, object]:

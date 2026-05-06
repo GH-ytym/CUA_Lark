@@ -75,18 +75,6 @@ class LarkCliErrorCode(IntEnum):
     HYBRID_TASK_REQUIRED = int(UnifiedErrorCode.HANDOFF_REQUIRED)
 
 
-class CuaAbortReason(IntEnum):
-    """CUA abort aliases backed by the shared integer error-code catalog."""
-
-    LOW_CONFIDENCE = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
-    TIMEOUT = int(UnifiedErrorCode.TIMEOUT)
-    INTERFACE_CHANGED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
-    MAX_RETRY_EXCEEDED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
-    SECURITY_RISK = int(UnifiedErrorCode.SECURITY_BLOCKED)
-    USER_INTERRUPTED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
-    MULTI_MONITOR_UNSUPPORTED = int(UnifiedErrorCode.UI_ENVIRONMENT_UNSAFE)
-
-
 ALLOWED_TRANSITIONS: dict[ExecutionStatus, set[ExecutionStatus]] = {
     ExecutionStatus.QUEUED: {ExecutionStatus.PARSING, ExecutionStatus.CANCELED},
     ExecutionStatus.PARSING: {

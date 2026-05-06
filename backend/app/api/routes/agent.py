@@ -18,7 +18,7 @@ from app.schemas.chat import (
     StateMachineResponse,
 )
 from app.services.orchestrator import OrchestratorService
-from shared.error_codes import CLI_TRIGGER_ERROR_CODES, CUA_ABORT_ERROR_CODES, error_code_catalog_payload
+from shared.error_codes import CUA_ABORT_ERROR_CODES, error_code_catalog_payload
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 orchestrator_service = OrchestratorService()
@@ -86,9 +86,8 @@ async def get_state_machine() -> StateMachineResponse:
 
 @router.get("/cua-boundary", response_model=CuaBoundaryResponse)
 async def get_cua_boundary() -> CuaBoundaryResponse:
-    """Expose CUA trigger and abort codes aligned with cua/trigger_rules.py."""
+    """Expose the CUA abort codes and shared error catalog."""
     return CuaBoundaryResponse(
-        cli_trigger_error_codes=list(CLI_TRIGGER_ERROR_CODES),
         cua_abort_error_codes=list(CUA_ABORT_ERROR_CODES),
         error_code_catalog=[
             ErrorCodeCatalogEntry.model_validate(item)

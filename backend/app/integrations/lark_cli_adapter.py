@@ -28,15 +28,6 @@ class BusinessDomain(StrEnum):
 
 
 @dataclass(frozen=True)
-class CliToolFamily:
-    """One Lark CLI tool family grouped by business semantics."""
-
-    tool_name: str
-    domain: BusinessDomain
-    capabilities: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class CliInvocation:
     """A normalized invocation unit for downstream executor/service."""
 
@@ -52,85 +43,11 @@ class CliCallPlan:
     capability_id: CapabilityId
     domain: BusinessDomain
     invocations: tuple[CliInvocation, ...]
-    fallback_hint: str
     intent: IntentType = IntentType.UNKNOWN
-
-
-TOOL_FAMILIES: tuple[CliToolFamily, ...] = (
-    CliToolFamily(
-        tool_name="lark-im",
-        domain=BusinessDomain.MESSAGE,
-        capabilities=("message_send", "message_reply", "chat_history_search"),
-    ),
-    CliToolFamily(
-        tool_name="lark-calendar",
-        domain=BusinessDomain.CALENDAR,
-        capabilities=("event_create", "event_reschedule", "freebusy_query"),
-    ),
-    CliToolFamily(
-        tool_name="lark-doc",
-        domain=BusinessDomain.DOC_SHEET,
-        capabilities=("doc_create", "doc_update", "doc_search"),
-    ),
-    CliToolFamily(
-        tool_name="lark-sheets",
-        domain=BusinessDomain.DOC_SHEET,
-        capabilities=("sheet_read", "sheet_write", "sheet_append"),
-    ),
-    CliToolFamily(
-        tool_name="lark-contact",
-        domain=BusinessDomain.CONTACT,
-        capabilities=("user_search", "org_lookup"),
-    ),
-    CliToolFamily(
-        tool_name="lark-task",
-        domain=BusinessDomain.TASK,
-        capabilities=("task_create", "task_update", "task_list"),
-    ),
-    CliToolFamily(
-        tool_name="lark-mail",
-        domain=BusinessDomain.MAIL,
-        capabilities=("mail_compose", "mail_send", "mail_search"),
-    ),
-)
-
-
-INTENT_TO_DOMAIN: dict[IntentType, BusinessDomain] = {
-    IntentType.MESSAGE_SEND: BusinessDomain.MESSAGE,
-    IntentType.CALENDAR_RESCHEDULE: BusinessDomain.CALENDAR,
-    IntentType.DOC_CREATE: BusinessDomain.DOC_SHEET,
-    IntentType.SHEET_UPDATE: BusinessDomain.DOC_SHEET,
-    IntentType.UNKNOWN: BusinessDomain.UNKNOWN,
-}
-
-
-INTENT_TO_CAPABILITY: dict[IntentType, CapabilityId] = {
-    IntentType.MESSAGE_SEND: CapabilityId.IM_MESSAGE_SEND,
-    IntentType.CALENDAR_RESCHEDULE: CapabilityId.CALENDAR_RESCHEDULE,
-    IntentType.DOC_CREATE: CapabilityId.DOC_CREATE,
-    IntentType.SHEET_UPDATE: CapabilityId.SHEET_UPDATE,
-    IntentType.UNKNOWN: CapabilityId.UNKNOWN,
-}
 
 
 class LarkCliAdapter:
     """Build business-level CLI plans from normalized intents."""
-
-    def list_tool_families(self) -> tuple[CliToolFamily, ...]:
-        """Expose tool families so planning/docs stay source-of-truth."""
-        return TOOL_FAMILIES
-
-    def classify_business(self, intent: IntentType) -> BusinessDomain:
-        """Map intent to business domain."""
-        return INTENT_TO_DOMAIN.get(intent, BusinessDomain.UNKNOWN)
-
-    def build_plan(self, intent: IntentType, payload: dict[str, Any]) -> CliCallPlan:
-        """Backward-compatible intent-to-plan adapter."""
-        return self.build_plan_for_capability(
-            capability_id=INTENT_TO_CAPABILITY.get(intent, CapabilityId.UNKNOWN),
-            payload=payload,
-            intent=intent,
-        )
 
     def build_plan_for_capability(
         self,
@@ -153,14 +70,12 @@ class LarkCliAdapter:
                         arguments=normalize_payload(capability_id, payload),
                     ),
                 ),
-                fallback_hint=f"{domain.value}_flow_failed",
             )
         return CliCallPlan(
             intent=intent,
             capability_id=CapabilityId.UNKNOWN,
             domain=BusinessDomain.UNKNOWN,
             invocations=tuple(),
-            fallback_hint="unsupported_intent_for_cli",
         )
 
     @staticmethod

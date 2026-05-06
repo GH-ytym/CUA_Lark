@@ -7,11 +7,9 @@ from pydantic import BaseModel, Field
 
 from app.domain.enums import (
     CapabilityId,
-    CuaAbortReason,
     ExecutionStatus,
     ExecutorType,
     IntentType,
-    LarkCliErrorCode,
 )
 
 
@@ -23,22 +21,6 @@ class MvpCapability(BaseModel):
     description: str
 
 
-class ExecutionTask(BaseModel):
-    """Persistent shape for one orchestration task."""
-
-    task_id: str = Field(default_factory=lambda: str(uuid4()))
-    session_id: str
-    user_id: str
-    raw_message: str
-    intent_type: IntentType = IntentType.UNKNOWN
-    executor: ExecutorType = ExecutorType.NONE
-    status: ExecutionStatus = ExecutionStatus.QUEUED
-    cli_error_code: LarkCliErrorCode | None = None
-    cua_abort_reason: CuaAbortReason | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
 class StandardAction(BaseModel):
     """Normalized action contract emitted by intent parsing."""
 
@@ -46,6 +28,8 @@ class StandardAction(BaseModel):
     payload: dict[str, object] = Field(default_factory=dict)
     executor_hint: ExecutorType = ExecutorType.NONE
     intent_type: IntentType = IntentType.UNKNOWN
+    handoff_error_code: int | None = None
+    handoff_reason: str = ""
 
 
 class ExecutorResult(BaseModel):

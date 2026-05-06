@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
@@ -11,22 +10,10 @@ import time
 from typing import Any
 
 from app.core.config import get_settings
-from app.domain.enums import ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
+from app.domain.enums import ExecutionStatus, ExecutorType, LarkCliErrorCode
 from app.domain.models import ExecutorResult, StandardAction
 from app.integrations.lark_cli_adapter import CliCallPlan, LarkCliAdapter
-from shared.error_codes import cli_error_name, normalize_error_code
-
-
-@dataclass(frozen=True)
-class LarkCliServiceResult:
-    """Normalized service result shared with orchestrator."""
-
-    success: bool
-    error_code: LarkCliErrorCode | None
-    summary: str
-    payload: dict[str, Any]
-    plan: CliCallPlan
-    executor_result: ExecutorResult | None = None
+from shared.error_codes import cli_error_name
 
 
 class LarkCliService:
@@ -35,10 +22,6 @@ class LarkCliService:
     def __init__(self, adapter: LarkCliAdapter | None = None) -> None:
         self.adapter = adapter or LarkCliAdapter()
         self.settings = get_settings()
-
-    def plan(self, intent: IntentType, payload: dict[str, Any]) -> CliCallPlan:
-        """Build intent plan with business-level adapter routing."""
-        return self.adapter.build_plan(intent=intent, payload=payload)
 
     def plan_action(self, action: StandardAction) -> CliCallPlan:
         """Build a CLI call plan from a standard action."""
@@ -62,18 +45,6 @@ class LarkCliService:
         if "invalid result" in lower or "empty result" in lower:
             return LarkCliErrorCode.RESULT_INVALID
         return LarkCliErrorCode.API_ERROR
-
-    def execute(self, intent: IntentType, payload: dict[str, Any], dry_run: bool = False) -> LarkCliServiceResult:
-        """Backward-compatible intent execution API."""
-        action = StandardAction(
-            capability_id=self.adapter.build_plan(intent=intent, payload=payload).capability_id,
-            payload=payload,
-            executor_hint=ExecutorType.CLI,
-            intent_type=intent,
-        )
-        plan = self.plan_action(action)
-        executor_result = self.execute_action(action=action, dry_run=dry_run)
-        return self._legacy_result_from_executor_result(plan=plan, result=executor_result)
 
     def execute_action(self, action: StandardAction, dry_run: bool = False) -> ExecutorResult:
         """Execute a standard action through lark-cli and return one unified result."""
@@ -191,46 +162,6 @@ class LarkCliService:
             duration_ms=self._elapsed_ms(started_all),
         )
 
-    def simulate_execute(self, intent: IntentType, payload: dict[str, Any]) -> LarkCliServiceResult:
-        """Backward-compatible alias. Day4 now uses real CLI execution path."""
-        return self.execute(intent=intent, payload=payload, dry_run=bool(payload.get("dry_run", True)))
-
-    def _success_result(
-        self,
-        plan: CliCallPlan,
-        dry_run: bool,
-        steps: list[dict[str, Any]],
-        summary: str,
-    ) -> LarkCliServiceResult:
-        return LarkCliServiceResult(
-            success=True,
-            error_code=None,
-            summary=summary,
-            payload=self._build_payload(plan=plan, dry_run=dry_run, steps=steps, error=None),
-            plan=plan,
-        )
-
-    def _legacy_result_from_executor_result(
-        self,
-        plan: CliCallPlan,
-        result: ExecutorResult,
-    ) -> LarkCliServiceResult:
-        normalized = normalize_error_code(result.error_code)
-        error_code = None
-        if normalized is not None:
-            try:
-                error_code = LarkCliErrorCode(int(normalized))
-            except ValueError:
-                error_code = None
-        return LarkCliServiceResult(
-            success=result.success,
-            error_code=error_code,
-            summary=result.summary,
-            payload=result.payload,
-            plan=plan,
-            executor_result=result,
-        )
-
     @staticmethod
     def _executor_failure_result(
         summary: str,
@@ -246,24 +177,6 @@ class LarkCliService:
             payload=payload,
             error_code=int(error_code),
             duration_ms=duration_ms,
-        )
-
-    def _failure_result(
-        self,
-        plan: CliCallPlan,
-        dry_run: bool,
-        steps: list[dict[str, Any]],
-        error_code: LarkCliErrorCode,
-        summary: str,
-        detail: dict[str, Any] | None = None,
-    ) -> LarkCliServiceResult:
-        error = self._build_error_info(error_code=error_code, message=summary, detail=detail)
-        return LarkCliServiceResult(
-            success=False,
-            error_code=error_code,
-            summary=summary,
-            payload=self._build_payload(plan=plan, dry_run=dry_run, steps=steps, error=error),
-            plan=plan,
         )
 
     @staticmethod

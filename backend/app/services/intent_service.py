@@ -24,6 +24,7 @@ from app.domain.enums import CapabilityId, ExecutorType, IntentType
 from app.domain.models import StandardAction
 from app.schemas.chat import ParsePreviewResponse
 from app.services.recipient_resolver import RecipientResolver
+from shared.error_codes import normalize_error_code
 
 MESSAGE_CAPABILITIES_WITH_TARGET = {
     capability_id
@@ -91,10 +92,6 @@ class IntentService:
             reason="qwen parse failed",
             parse_source=parse_source,
         )
-
-    async def _parse_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
-        """Backward-compatible alias for the planner parse path."""
-        return await self._parse_request_plan_with_llm(message=message, context_hint=context_hint)
 
     async def _parse_request_plan_with_llm(self, message: str, context_hint: str) -> IntentDecision | None:
         """Ask the model to plan the full request, including ordered multi-task output."""
@@ -525,6 +522,12 @@ class IntentService:
             "action_plan": self._normalize_plan(self._pick_first(data, "action_plan", "a")),
             "payload": normalized_payload,
             "missing_fields": self._normalize_missing_fields(self._pick_first(data, "missing_fields", "miss")),
+            "handoff_error_code": self._normalize_handoff_error_code(
+                self._pick_first(data, "handoff_error_code", "error_code", "code", "ec")
+            ),
+            "handoff_reason": str(
+                self._pick_first(data, "handoff_reason", "error_reason", "error", "er", default="")
+            ).strip()[:200],
         }
 
     def _normalize_request_plan_payload(
@@ -606,7 +609,12 @@ class IntentService:
             self._execution_missing_fields(capability_id=capability_id, payload=payload),
         )
         structured_command = self._build_structured_command(capability_id=capability_id, payload=payload)
-        action = self._build_standard_action(capability_id=capability_id, payload=payload)
+        action = self._build_standard_action(
+            capability_id=capability_id,
+            payload=payload,
+            handoff_error_code=self._normalize_handoff_error_code(normalized.get("handoff_error_code")),
+            handoff_reason=str(normalized.get("handoff_reason", "")).strip(),
+        )
 
         return IntentDecision(
             intent_type=self._intent_for_capability(capability_id),
@@ -816,9 +824,10 @@ class IntentService:
             "Return exactly one JSON object and nothing else. "
             "Use the minimal compact JSON schema for stability. "
             "Required top-level field: t. "
-            "Required task fields: m, c, p. Optional task field: miss. "
+            "Required task fields: m, c, p. Optional task fields: miss, ec, er. "
             "Optional top-level fields: r, a. Optional task fields: r, a. "
-            "t must be an ordered array. Each task object means: m=raw_message, c=capability_id, p=payload, miss=missing_fields. "
+            "t must be an ordered array. Each task object means: m=raw_message, c=capability_id, p=payload, "
+            "miss=missing_fields, ec=standard_error_code, er=handoff_reason. "
             "Long field names are allowed for compatibility, but always prefer the compact keys. "
             "Do not rely on punctuation alone. Infer task boundaries from semantics, ordering words, and dependencies. "
             "If the user gives 3-4 actions in one sentence, keep all of them in order inside tasks. "
@@ -832,6 +841,9 @@ class IntentService:
             "Leave unknown strings empty, unknown arrays empty, and unknown records empty. "
             "Use only these capability schemas: "
             f"{IntentService._capability_catalog_text()} "
+            "If the task cannot be executed by CLI but can be completed in the Feishu desktop UI, set ec to one standard "
+            "integer error code from the catalog instead of inventing placeholders. Use 4 for missing or unresolved execution "
+            "input, 7 for explicit handoff required, 2 for unsupported CLI capability, 5 for uncategorized execution failure. "
             "If a required execution argument is missing, list it in missing_fields instead of guessing. "
             "Do not drop recipient names from payload.chat_hint just because an id is unknown. "
             "For user-visible names, descriptions, titles, messages, and queries, preserve the user wording in the matching schema field. "
@@ -843,7 +855,7 @@ class IntentService:
         return (
             '{"t":['
             '{"m":"send a status note to Alex","c":"im.message_send",'
-            '"p":{"chat_hint":"Alex","chat_id":"","user_id":"","text":"The rollout is ready.","identity":"user"},"miss":[]},'
+            '"p":{"chat_hint":"Alex","chat_id":"","user_id":"","text":"The rollout is ready.","identity":"user"},"miss":[],"ec":null},'
             '{"m":"create a follow-up document","c":"docs.create",'
             '"p":{"title":"Rollout follow-up","content":"","folder_token":""},"miss":[]},'
             '{"m":"schedule the review tomorrow at 3pm","c":"calendar.create",'
@@ -1080,12 +1092,25 @@ class IntentService:
             "tasks": tasks,
         }
 
-    def _build_standard_action(self, capability_id: CapabilityId, payload: dict[str, object]) -> StandardAction:
+    @staticmethod
+    def _normalize_handoff_error_code(value: object) -> int | None:
+        code = normalize_error_code(value)
+        return int(code) if code is not None else None
+
+    def _build_standard_action(
+        self,
+        capability_id: CapabilityId,
+        payload: dict[str, object],
+        handoff_error_code: int | None = None,
+        handoff_reason: str = "",
+    ) -> StandardAction:
         intent = self._intent_for_capability(capability_id)
         return StandardAction(
             capability_id=capability_id,
             payload=payload,
             executor_hint=self._executor_for(capability_id),
             intent_type=intent,
+            handoff_error_code=self._normalize_handoff_error_code(handoff_error_code),
+            handoff_reason=str(handoff_reason).strip()[:200],
         )
 
