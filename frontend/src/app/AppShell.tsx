@@ -9,10 +9,10 @@ export function AppShell({ children }: AppShellProps) {
 		<div className="app-shell">
 			<header className="app-header" aria-label="CUA Lark sidebar header">
 				<div>
-					<p className="eyebrow">Feishu AI Challenge · Day 1</p>
+					<p className="eyebrow">Feishu AI Challenge · C Line</p>
 					<h1>CUA-Lark 智能侧边栏</h1>
 				</div>
-				<span className="status-pill">线框评审版</span>
+				<span className="status-pill">集成封板版</span>
 			</header>
 			{children}
 		</div>

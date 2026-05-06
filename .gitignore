@@ -47,6 +47,7 @@ frontend/.env.*
 *.log
 logs/
 runs/
+runtime/
 
 # Docs
 docs/

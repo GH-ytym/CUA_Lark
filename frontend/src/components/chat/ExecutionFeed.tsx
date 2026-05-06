@@ -6,6 +6,7 @@ const statusLabel: Record<TaskCard["status"], string> = {
 	fallback: "CUA 接管",
 	completed: "已完成",
 	failed: "失败",
+	canceled: "已取消",
 };
 
 type ExecutionFeedProps = {

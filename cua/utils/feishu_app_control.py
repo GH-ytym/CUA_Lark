@@ -1,9 +1,14 @@
 """
 飞书应用控制工具（严格对齐参考项目实现）
 """
-import win32gui
-import win32con
-import win32process
+try:
+    import win32gui
+    import win32con
+    import win32process
+except ImportError:
+    win32gui = None
+    win32con = None
+    win32process = None
 import time
 from typing import Tuple, Optional
 
@@ -15,6 +20,9 @@ def focus_and_maximize(app_identifier: str = "飞书", match_by: str = "title") 
     :param match_by: 匹配方式：title/process_name/class_name
     :return: (是否成功, 窗口句柄)
     """
+    if win32gui is None or win32con is None or win32process is None:
+        return False, None
+
     target_hwnd = None
     
     def window_enum_callback(hwnd, extra):
@@ -88,11 +96,15 @@ def focus_and_maximize(app_identifier: str = "飞书", match_by: str = "title") 
 
 def is_foreground_window(hwnd: int) -> bool:
     """检查窗口是否在前台"""
+    if win32gui is None:
+        return False
     return win32gui.GetForegroundWindow() == hwnd
 
 
 def get_window_rect(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
     """获取窗口客户区坐标"""
+    if win32gui is None:
+        return None
     try:
         left, top, right, bottom = win32gui.GetClientRect(hwnd)
         left, top = win32gui.ClientToScreen(hwnd, (left, top))

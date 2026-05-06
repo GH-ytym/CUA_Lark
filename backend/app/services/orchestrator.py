@@ -331,16 +331,25 @@ class OrchestratorService:
         return self._tasks.get(task_id)
 
     def cancel_task(self, task_id: str) -> OrchestrationTask | None:
-        """Mark a non-terminal in-memory task as canceled."""
+        """Mark a non-terminal in-memory task as canceled for sidebar controls."""
         task = self._tasks.get(task_id)
         if task is None:
             return None
-        if task.status in {ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.CANCELED}:
+        if task.status in {
+            ExecutionStatus.COMPLETED,
+            ExecutionStatus.FAILED,
+            ExecutionStatus.CANCELED,
+        }:
             return task
         self._canceled_task_ids.add(task_id)
         task.status = ExecutionStatus.CANCELED
         task.updated_at = datetime.now(UTC)
-        self._record_step(task, "task_canceled", ExecutionStatus.CANCELED, "task canceled by request")
+        self._record_step(
+            task,
+            "user_canceled",
+            ExecutionStatus.CANCELED,
+            "用户在前端请求取消任务。",
+        )
         return task
 
     @staticmethod

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 import sqlite3
+import subprocess
 from typing import Any
 
 from difflib import SequenceMatcher
@@ -83,6 +85,12 @@ class RecipientResolver:
         if cached is not None:
             return cached
         candidates = self._search_candidates_for_variants(hint)
+        if not candidates:
+            current_user = self._current_user_candidate(hint)
+            if current_user is not None:
+                candidates = [current_user]
+        if not candidates:
+            candidates = self._search_cli_contacts(hint)
         if not candidates:
             return self._mark_needs_confirmation(
                 payload=payload,
@@ -189,6 +197,115 @@ class RecipientResolver:
         ranked = sorted(merged.values(), key=lambda item: item.score, reverse=True)
         return ranked[: self._top_k]
 
+    def _current_user_candidate(self, hint: str) -> RecipientCandidate | None:
+        normalized_hint = self._normalize_text(hint)
+        if not normalized_hint:
+            return None
+        cli_path = str(self.settings.lark_cli_path or "lark-cli").strip() or "lark-cli"
+        workdir = self._resolve_workdir(self.settings.lark_cli_workdir)
+        try:
+            proc = subprocess.run(
+                [cli_path, "auth", "status"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8,
+                cwd=workdir,
+            )
+        except Exception:  # noqa: BLE001
+            return None
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return None
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return None
+        name = str(data.get("userName", "")).strip()
+        open_id = str(data.get("userOpenId", "")).strip()
+        if not name or not open_id:
+            return None
+        searchable = self._normalize_text(f"{name} {open_id}")
+        if normalized_hint not in searchable and self._score(normalized_hint, searchable) < 0.7:
+            return None
+        return RecipientCandidate(entity_type="contact", entity_id=open_id, name=name, score=1.0)
+
+    def _search_cli_contacts(self, hint: str) -> list[RecipientCandidate]:
+        normalized_hint = self._normalize_text(hint)
+        if not normalized_hint or self._is_generic_hint(hint):
+            return []
+        cli_path = str(self.settings.lark_cli_path or "lark-cli").strip() or "lark-cli"
+        workdir = self._resolve_workdir(self.settings.lark_cli_workdir)
+        try:
+            proc = subprocess.run(
+                [
+                    cli_path,
+                    "contact",
+                    "+search-user",
+                    "--as",
+                    "user",
+                    "--query",
+                    str(hint).strip(),
+                    "--page-size",
+                    str(min(max(self._top_k, 1), 30)),
+                    "--format",
+                    "json",
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                cwd=workdir,
+            )
+        except Exception:  # noqa: BLE001
+            return []
+        if proc.returncode != 0 or not proc.stdout.strip():
+            return []
+        try:
+            data = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return []
+        result_data = data.get("data", {})
+        users = result_data.get("users", []) if isinstance(result_data, dict) else []
+        candidates: list[RecipientCandidate] = []
+        for item in users:
+            if not isinstance(item, dict):
+                continue
+            open_id = str(item.get("open_id", "")).strip()
+            name = (
+                str(item.get("name", "")).strip()
+                or str(item.get("localized_name", "")).strip()
+                or str(item.get("en_name", "")).strip()
+                or open_id
+            )
+            if not open_id or not name:
+                continue
+            searchable = " ".join(
+                value
+                for value in (
+                    name,
+                    str(item.get("localized_name", "")).strip(),
+                    str(item.get("en_name", "")).strip(),
+                    str(item.get("email", "")).strip(),
+                    str(item.get("enterprise_email", "")).strip(),
+                    open_id,
+                )
+                if value
+            )
+            score = self._score(normalized_hint, searchable)
+            match_segments = item.get("match_segments", [])
+            if isinstance(match_segments, list) and any(self._normalize_text(str(segment)) == normalized_hint for segment in match_segments):
+                score = max(score, 0.96)
+            candidates.append(
+                RecipientCandidate(
+                    entity_type="contact",
+                    entity_id=open_id,
+                    name=name,
+                    score=score,
+                )
+            )
+        candidates.sort(key=lambda item: item.score, reverse=True)
+        return candidates[: self._top_k]
+
     @staticmethod
     def _pick_by_rules(hint: str, candidates: list[RecipientCandidate]) -> int | None:
         if not candidates:
@@ -292,3 +409,14 @@ class RecipientResolver:
             project_root = Path(__file__).resolve().parents[3]
             path = project_root / path
         return str(path)
+
+    @staticmethod
+    def _resolve_workdir(raw_workdir: str) -> str | None:
+        text = str(raw_workdir or "").strip()
+        if not text:
+            return None
+        path = Path(text)
+        if not path.is_absolute():
+            project_root = Path(__file__).resolve().parents[3]
+            path = project_root / path
+        return str(path) if path.exists() else None
