@@ -610,11 +610,17 @@ class IntentService:
             self._execution_missing_fields(capability_id=capability_id, payload=payload),
         )
         structured_command = self._build_structured_command(capability_id=capability_id, payload=payload)
+        handoff_error_code = self._normalize_handoff_error_code(normalized.get("handoff_error_code"))
+        if handoff_error_code is None:
+            handoff_error_code = self._normalize_handoff_error_code(payload.get("handoff_error_code"))
+        handoff_reason = str(normalized.get("handoff_reason", "")).strip()
+        if not handoff_reason:
+            handoff_reason = str(payload.get("handoff_reason", "")).strip()
         action = self._build_standard_action(
             capability_id=capability_id,
             payload=payload,
-            handoff_error_code=self._normalize_handoff_error_code(normalized.get("handoff_error_code")),
-            handoff_reason=str(normalized.get("handoff_reason", "")).strip(),
+            handoff_error_code=handoff_error_code,
+            handoff_reason=handoff_reason,
         )
 
         return IntentDecision(
@@ -1122,4 +1128,3 @@ class IntentService:
             handoff_error_code=self._normalize_handoff_error_code(handoff_error_code),
             handoff_reason=str(handoff_reason).strip()[:200],
         )
-

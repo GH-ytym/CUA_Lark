@@ -3,6 +3,7 @@ import asyncio
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType, LarkCliErrorCode
 from app.domain.models import ExecutorResult, StandardAction
 from app.schemas.chat import ExecuteCommandRequest
+from app.services.cli_failure_diagnosis_service import CliFailureDiagnosis
 from app.services.intent_service import IntentDecision
 from app.services.orchestrator import OrchestratorService
 from shared.error_codes import UnifiedErrorCode
@@ -37,6 +38,16 @@ def decision(payload: dict[str, object]) -> IntentDecision:
             handoff_reason=handoff_reason,
         ),
         structured_command={"intent_type": IntentType.MESSAGE_SEND.value, "payload": payload},
+    )
+
+
+async def fallback_diagnosis(*_: object, **__: object) -> CliFailureDiagnosis:
+    return CliFailureDiagnosis(
+        category="permission_denied",
+        should_fallback_to_cua=True,
+        confidence=0.9,
+        reason="failure can be retried through CUA",
+        user_message="模型判断 CLI 失败，准备切换到 CUA 接管。",
     )
 
 
@@ -108,6 +119,7 @@ def test_orchestrator_hands_off_ambiguous_message_to_cua() -> None:
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = should_not_execute  # type: ignore[method-assign]
     service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = fallback_diagnosis  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request("给王发你好")))
 
@@ -115,6 +127,101 @@ def test_orchestrator_hands_off_ambiguous_message_to_cua() -> None:
     assert response.execution_status == ExecutionStatus.COMPLETED
     assert response.cua_should_trigger is True
     assert response.execution_payload["mode"] == "cua_fallback"
+
+
+def test_orchestrator_hands_off_unresolved_message_target_before_cli() -> None:
+    service = OrchestratorService()
+    payload = {
+        "chat_hint": "项目群",
+        "chat_id": "",
+        "user_id": "",
+        "text": "今晚发布",
+        "resolution_status": "resolved",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return decision(payload)
+
+    def should_not_execute(*_: object, **__: object) -> ExecutorResult:
+        raise AssertionError("CLI should not run without chat_id/user_id")
+
+    def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback"},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = should_not_execute  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = fallback_diagnosis  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("给项目群发今晚发布")))
+    task = service.get_task(response.task_id)
+
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.handoff_error_code == int(UnifiedErrorCode.HANDOFF_REQUIRED)
+    assert response.cua_should_trigger is True
+    assert response.standard_action.payload["resolution_status"] == "handoff_required"
+    assert response.structured_payload["resolution_status"] == "handoff_required"
+    assert response.execution_payload["mode"] == "cua_fallback"
+    assert task is not None
+    assert [step.name for step in task.steps] == [
+        "task_created",
+        "intent_parsed",
+        "structured_diagnosed",
+        "cua_started",
+        "cua_finished",
+    ]
+
+
+def test_orchestrator_fails_missing_message_target_without_hint_before_cli() -> None:
+    service = OrchestratorService()
+    payload = {
+        "chat_hint": "",
+        "chat_id": "",
+        "user_id": "",
+        "text": "今晚发布",
+        "resolution_status": "resolved",
+    }
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return decision(payload)
+
+    async def input_diagnosis(*_: object, **__: object) -> CliFailureDiagnosis:
+        return CliFailureDiagnosis(
+            category="input_or_syntax_error",
+            should_fallback_to_cua=False,
+            confidence=0.9,
+            reason="missing recipient target",
+            user_message="请明确发送对象后重试。",
+        )
+
+    def should_not_execute(*_: object, **__: object) -> ExecutorResult:
+        raise AssertionError("CLI should not run without a recipient")
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = should_not_execute  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = input_diagnosis  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("发今晚发布")))
+    task = service.get_task(response.task_id)
+
+    assert response.execution_status == ExecutionStatus.FAILED
+    assert response.handoff_error_code == int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
+    assert response.cua_should_trigger is False
+    assert response.execution_summary == "请明确发送对象后重试。"
+    assert response.standard_action.payload["resolution_status"] == "missing_required_field"
+    assert response.structured_payload["resolution_status"] == "missing_required_field"
+    assert task is not None
+    assert [step.name for step in task.steps] == [
+        "task_created",
+        "intent_parsed",
+        "structured_diagnosed",
+    ]
 
 
 def test_orchestrator_maps_cli_failure_to_cua_trigger() -> None:
@@ -157,6 +264,7 @@ def test_orchestrator_maps_cli_failure_to_cua_trigger() -> None:
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
     service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = fallback_diagnosis  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request()))
     task = service.get_task(response.task_id)
@@ -173,6 +281,7 @@ def test_orchestrator_maps_cli_failure_to_cua_trigger() -> None:
         "intent_parsed",
         "cli_started",
         "cli_finished",
+        "cli_diagnosed",
         "cua_started",
         "cua_finished",
     ]
@@ -221,6 +330,7 @@ def test_orchestrator_marks_failed_when_cua_fallback_fails() -> None:
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
     service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = fallback_diagnosis  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request()))
 
@@ -315,6 +425,7 @@ def test_orchestrator_structured_error_code_hands_off_to_cua_without_cli() -> No
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
     service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = fallback_diagnosis  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request(message="给刚刚那个人发消息：hello")))
     task = service.get_task(response.task_id)
@@ -332,6 +443,7 @@ def test_orchestrator_structured_error_code_hands_off_to_cua_without_cli() -> No
     assert [step.name for step in task.steps] == [
         "task_created",
         "intent_parsed",
+        "structured_diagnosed",
         "cua_started",
         "cua_finished",
     ]
@@ -466,6 +578,7 @@ def test_orchestrator_cli_failure_does_not_retry_and_hands_off_once_to_cua() -> 
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
     service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = fallback_diagnosis  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request()))
 
@@ -525,6 +638,7 @@ def test_orchestrator_preserves_retry_context_when_handing_off_to_cua() -> None:
     service.intent_service.parse = fake_parse  # type: ignore[method-assign]
     service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
     service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+    service.diagnosis_service.diagnose = fallback_diagnosis  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request()))
 
@@ -602,6 +716,7 @@ def test_orchestrator_docs_failure_reuses_existing_fallback_flow() -> None:
         "intent_parsed",
         "cli_started",
         "cli_finished",
+        "cli_diagnosed",
         "cua_started",
         "cua_finished",
     ]

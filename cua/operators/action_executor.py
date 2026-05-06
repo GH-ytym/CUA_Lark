@@ -151,6 +151,8 @@ def execute_parsed_actions(actions: List[Dict[str, Any]], hwnd: int = None) -> D
                 pyautogui.press(key)
                 log_messages.append(f"✅ 执行 -> 敲击按键: {key}")
                 res["executed_actions"].append(f"敲击 {key}")
+                if key in {"enter", "return"}:
+                    time.sleep(1.2)
                 
             elif cmd == "REPLY":
                 text_msg = act.get("text", "")

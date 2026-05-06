@@ -92,6 +92,41 @@ def test_llm_structured_error_code_is_preserved_on_standard_action() -> None:
     assert decision.structured_command["payload"]["chat_hint"] == "刚刚那个人"
 
 
+def test_llm_payload_handoff_error_code_is_promoted_to_standard_action() -> None:
+    service = _make_service()
+
+    async def fake_resolve(*_: object, **kwargs: object) -> dict[str, object]:
+        payload = dict(kwargs["payload"])
+        payload["resolution_status"] = "handoff_required"
+        payload["handoff_error_code"] = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+        payload["handoff_reason"] = "recipient resolution requires current Feishu UI context"
+        return payload
+
+    async def fake_chat_completion(*_: object, **__: object) -> tuple[str, str | None]:
+        return (
+            json.dumps(
+                {
+                    "capability_id": "im.message_send",
+                    "reason": "user wants to send a message",
+                    "action_plan": ["resolve recipient", "send message"],
+                    "payload": {"chat_hint": "项目群", "text": "今晚九点发布"},
+                    "missing_fields": [],
+                },
+                ensure_ascii=False,
+            ),
+            None,
+        )
+
+    service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
+    service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    decision = asyncio.run(service.parse("跟项目群说今晚九点发布"))
+
+    assert decision.standard_action.handoff_error_code == int(UnifiedErrorCode.HANDOFF_REQUIRED)
+    assert decision.standard_action.handoff_reason == "recipient resolution requires current Feishu UI context"
+    assert decision.standard_action.payload["handoff_error_code"] == int(UnifiedErrorCode.HANDOFF_REQUIRED)
+
+
 def test_llm_message_search_structures_payload() -> None:
     service = _make_service()
 

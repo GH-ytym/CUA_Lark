@@ -51,6 +51,7 @@ class AgentLoopRunner:
             
             # 解析动作组为 dict 列表
             actions = parse_action_json(model_reply)
+            actions, deferred_completion = self._defer_premature_completion(actions)
                 
             # 3. 手: 执行解析出的动作列表字典
             res = execute_parsed_actions(actions)
@@ -95,6 +96,8 @@ class AgentLoopRunner:
                     self.action_summary.extend(res["executed_actions"])
             else:
                 feedback = f"⚠️ 动作失败: {res['error']}"
+            if deferred_completion:
+                feedback += "\n系统检测到本轮同时包含界面操作和完成信号，已忽略提前完成，请根据最新截图继续确认。"
 
             # 记录到报告
             self.logger.log_step({
@@ -127,3 +130,48 @@ class AgentLoopRunner:
 
         logging.warning("达到了最大循环步数限制。")
         return False
+
+    @staticmethod
+    def _defer_premature_completion(actions: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+        """Force one screenshot verification pass after real UI actions before accepting DONE."""
+        if not AgentLoopRunner._has_ui_actions(actions) or not AgentLoopRunner._has_done(actions):
+            return actions, False
+
+        filtered: list[dict[str, Any]] = []
+        for action in actions:
+            if not isinstance(action, dict):
+                continue
+            cmd = str(action.get("action", "")).upper()
+            if cmd == "DONE":
+                continue
+            if cmd == "REPLY" and AgentLoopRunner._looks_like_final_reply(str(action.get("text", ""))):
+                continue
+            filtered.append(action)
+        return filtered, True
+
+    @staticmethod
+    def _has_done(actions: list[dict[str, Any]]) -> bool:
+        return any(isinstance(action, dict) and str(action.get("action", "")).upper() == "DONE" for action in actions)
+
+    @staticmethod
+    def _has_ui_actions(actions: list[dict[str, Any]]) -> bool:
+        ui_actions = {"CLICK", "DOUBLE_CLICK", "MOVE", "INPUT", "PRESS", "SCROLL", "HOTKEY", "WAIT"}
+        return any(
+            isinstance(action, dict) and str(action.get("action", "")).upper() in ui_actions
+            for action in actions
+        )
+
+    @staticmethod
+    def _looks_like_final_reply(text: str) -> bool:
+        normalized = str(text).strip().lower()
+        final_markers = (
+            "已成功",
+            "任务完成",
+            "完成。",
+            "完成",
+            "已发送",
+            "发送完成",
+            "success",
+            "done",
+        )
+        return any(marker in normalized for marker in final_markers)

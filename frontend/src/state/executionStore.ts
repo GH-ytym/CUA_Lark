@@ -92,7 +92,7 @@ export function buildTimelineSteps(viewState: ExecutionViewState | null): Timeli
 			{
 				id: "cua",
 				label: "CUA",
-				detail: "CLI 失败时接管。",
+				detail: "CLI 失败后先由模型诊断，再按结论接管。",
 				status: "pending",
 			},
 			{
@@ -109,6 +109,7 @@ export function buildTimelineSteps(viewState: ExecutionViewState | null): Timeli
 	const hasIntent = hasStepNamed(steps, "intent_parsed");
 	const hasCliStarted = hasStepMatching(steps, /(^|_)cli_started$/);
 	const hasCliFinished = hasStepMatching(steps, /(^|_)cli_finished$/);
+	const hasCliDiagnosed = hasStepMatching(steps, /(^|_)cli_diagnosed$/);
 	const hasCuaStarted = hasStepMatching(steps, /(^|_)cua_started$/);
 	const hasCuaFinished = hasStepMatching(steps, /(^|_)cua_finished$/);
 	const terminal = isTerminalExecutionStatus(currentStatus);
@@ -129,7 +130,7 @@ export function buildTimelineSteps(viewState: ExecutionViewState | null): Timeli
 		{
 			id: "cli",
 			label: "CLI",
-			detail: cliTimelineDetail(currentStatus, hasCliStarted, hasCliFinished),
+			detail: cliTimelineDetail(currentStatus, hasCliStarted, hasCliFinished, hasCliDiagnosed),
 			status: cliTimelineStatus(currentStatus, hasCliStarted, hasCliFinished),
 		},
 		{
@@ -319,12 +320,16 @@ function cliTimelineDetail(
 	status: ExecutionStatus,
 	hasStarted: boolean,
 	hasFinished: boolean,
+	hasDiagnosed: boolean,
 ): string {
+	if (hasDiagnosed) {
+		return "CLI 已返回错误，模型已完成原因诊断。";
+	}
 	if (status === "cli_running" || hasStarted) {
 		return hasFinished ? "CLI 已返回结果。" : "CLI 正在执行。";
 	}
 	if (status === "cli_failed") {
-		return "CLI 失败，等待或已触发 fallback。";
+		return "CLI 失败，等待模型诊断是否接管。";
 	}
 	return "未进入 CLI 阶段。";
 }
@@ -359,9 +364,9 @@ function cuaTimelineDetail(
 		return status === "failed" ? "CUA 已结束，但任务失败。" : "CUA 已完成接管。";
 	}
 	if (shouldTrigger || hasStarted) {
-		return "已满足接管条件，等待 CUA 回写。";
+		return "模型诊断确认需要接管，等待 CUA 回写。";
 	}
-	return "无需接管或尚未触发。";
+	return "尚未触发，或模型诊断后判定无需接管。";
 }
 
 function resultTimelineStatus(status: ExecutionStatus): TimelineStep["status"] {
@@ -384,6 +389,8 @@ function labelForStep(name: string): string {
 		intent_parsed: "意图解析",
 		cli_started: "CLI 开始",
 		cli_finished: "CLI 结束",
+		cli_diagnosed: "模型诊断",
+		structured_diagnosed: "模型诊断",
 		cua_started: "CUA 接管",
 		cua_finished: "CUA 结束",
 	};

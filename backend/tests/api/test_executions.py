@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from app.domain.enums import ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import ExecutorResult, OrchestrationTask
 from app.main import create_app
+from app.services.cli_failure_diagnosis_service import CliFailureDiagnosis
 from app.services.intent_service import IntentDecision
 from shared.error_codes import UnifiedErrorCode
 
@@ -46,6 +47,16 @@ def test_get_execution_detail_returns_recorded_steps(monkeypatch) -> None:
             },
         ),
     )
+    async def fake_diagnose(*_: object, **__: object) -> CliFailureDiagnosis:
+        return CliFailureDiagnosis(
+            category="permission_denied",
+            should_fallback_to_cua=True,
+            confidence=0.9,
+            reason="permission failure can be retried through CUA",
+            user_message="模型判断 CLI 权限不足，准备切换到 CUA 接管。",
+        )
+
+    monkeypatch.setattr(agent.orchestrator_service.diagnosis_service, "diagnose", fake_diagnose)
     monkeypatch.setattr(
         agent.orchestrator_service.cua_service,
         "execute_fallback",
@@ -82,6 +93,7 @@ def test_get_execution_detail_returns_recorded_steps(monkeypatch) -> None:
         "intent_parsed",
         "cli_started",
         "cli_finished",
+        "cli_diagnosed",
         "cua_started",
         "cua_finished",
     ]
@@ -225,6 +237,16 @@ def test_cancel_execution_marks_confirmation_task_canceled(monkeypatch) -> None:
     from app.api.routes import agent
 
     monkeypatch.setattr(agent.intent_service, "parse", fake_parse)
+    async def fake_diagnose(*_: object, **__: object) -> CliFailureDiagnosis:
+        return CliFailureDiagnosis(
+            category="input_or_syntax_error",
+            should_fallback_to_cua=False,
+            confidence=0.9,
+            reason="candidate confirmation is incomplete",
+            user_message="模型判断需要先确认目标对象，请补充明确接收人后重试。",
+        )
+
+    monkeypatch.setattr(agent.orchestrator_service.diagnosis_service, "diagnose", fake_diagnose)
     client = TestClient(create_app())
     execute_response = client.post(
         "/api/agent/execute",
