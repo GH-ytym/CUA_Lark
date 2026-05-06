@@ -17,7 +17,7 @@ import httpx
 from pydantic import BaseModel, Field
 from dotenv import dotenv_values, set_key
 
-from app.core.config import get_settings
+from app.core.config import ENV_FILE, get_settings
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 LARK_CLI_PACKAGE_PATTERN = re.compile(
@@ -106,14 +106,19 @@ async def debug_echo(request: Request) -> dict[str, str]:
 @router.get("/runtime-check")
 async def runtime_check() -> dict[str, object]:
     """Return non-secret runtime readiness checks for the frontend setup panel."""
+    get_settings.cache_clear()
     settings = get_settings()
-    env_path = Path(".env")
+    env_path = ENV_FILE
+    env_values = dotenv_values(env_path)
     node_path = shutil.which("node")
     npm_path = shutil.which("npm")
     lark_cli_resolved = shutil.which(settings.lark_cli_path)
     explicit_lark_path_exists = Path(settings.lark_cli_path).exists() if settings.lark_cli_path else False
     lark_cli_available = bool(lark_cli_resolved or explicit_lark_path_exists)
     lark_cli_workdir = _resolve_optional_path(settings.lark_cli_workdir)
+    cua_model_api_key = str(env_values.get("CUA_MODEL_API_KEY") or settings.cua_model_api_key or "").strip()
+    cua_model_api_base = str(env_values.get("CUA_MODEL_API_BASE") or settings.cua_model_api_base or "").strip()
+    cua_model_name = str(env_values.get("CUA_MODEL_NAME") or settings.cua_model_name or "").strip()
     lark_account = _build_lark_cli_account_check(include_doctor=False) if lark_cli_available else {
         "configured": False,
         "authenticated": False,
@@ -188,24 +193,24 @@ async def runtime_check() -> dict[str, object]:
         {
             "id": "cua_model_api_key",
             "label": "CUA_MODEL_API_KEY",
-            "status": "ok" if bool(settings.cua_model_api_key) else "missing",
-            "value": "已配置" if settings.cua_model_api_key else "未配置",
+            "status": "ok" if bool(cua_model_api_key) else "missing",
+            "value": "已配置" if cua_model_api_key else "未配置",
             "required": False,
             "hint": "只在启用视觉兜底时必需；接口不会回显密钥内容。",
         },
         {
             "id": "cua_model_api_base",
             "label": "CUA_MODEL_API_BASE",
-            "status": "ok" if bool(settings.cua_model_api_base) else "missing",
-            "value": settings.cua_model_api_base or "",
+            "status": "ok" if bool(cua_model_api_base) else "missing",
+            "value": cua_model_api_base,
             "required": False,
             "hint": "视觉模型 OpenAI-compatible base URL。",
         },
         {
             "id": "cua_model_name",
             "label": "CUA_MODEL_NAME",
-            "status": "ok" if bool(settings.cua_model_name) else "missing",
-            "value": settings.cua_model_name or "",
+            "status": "ok" if bool(cua_model_name) else "missing",
+            "value": cua_model_name,
             "required": False,
             "hint": "视觉模型名称，例如团队提供的 endpoint/model id。",
         },
@@ -220,9 +225,9 @@ async def runtime_check() -> dict[str, object]:
             "QWEN_MODEL": settings.qwen_model or "qwen3.6-max",
             "LARK_CLI_PATH": settings.lark_cli_path or "lark-cli",
             "LARK_CLI_WORKDIR": settings.lark_cli_workdir or "./runtime/lark-cli",
-            "CUA_MODEL_API_KEY": settings.cua_model_api_key or "启用视觉兜底时填写",
-            "CUA_MODEL_API_BASE": settings.cua_model_api_base or "https://ark.cn-beijing.volces.com/api/v3",
-            "CUA_MODEL_NAME": settings.cua_model_name or "ep-20260423222752-9tcpw",
+            "CUA_MODEL_API_KEY": cua_model_api_key or "启用视觉兜底时填写",
+            "CUA_MODEL_API_BASE": cua_model_api_base or "https://ark.cn-beijing.volces.com/api/v3",
+            "CUA_MODEL_NAME": cua_model_name or "ep-20260423222752-9tcpw",
         },
         "install": {
             "backend": ".venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --app-dir backend",
@@ -241,7 +246,7 @@ async def runtime_check() -> dict[str, object]:
 @router.post("/runtime-config")
 async def update_runtime_config(payload: RuntimeConfigUpdate) -> dict[str, object]:
     """Update project .env from the local setup panel without echoing secrets."""
-    env_path = Path(".env")
+    env_path = ENV_FILE
     env_path.touch(exist_ok=True)
     existing_values = dotenv_values(env_path)
 
@@ -478,7 +483,7 @@ def _update_env_values(
 
 
 def _enable_lark_cli_path(path: Path, workdir: Path | None) -> list[str]:
-    env_path = Path(".env")
+    env_path = ENV_FILE
     env_path.touch(exist_ok=True)
     updates = {"LARK_CLI_PATH": str(path)}
     if workdir is not None:

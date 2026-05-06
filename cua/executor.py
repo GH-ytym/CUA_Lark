@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
+
+from dotenv import dotenv_values
 
 from .schemas import CuaMemoryUsage, CuaRequest, CuaResponse
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ENV_FILE = PROJECT_ROOT / ".env"
 class CuaExecutor:
     """Compatibility wrapper around the current CUA AgentLoopRunner implementation."""
 
@@ -46,8 +51,6 @@ class CuaExecutor:
             success = runner.run(
                 current_goal=request.instruction,
                 max_steps=int(os.getenv("CUA_MAX_STEPS", "15")),
-                memory_scope=memory_scope,
-                fallback_context=fallback_context,
             )
         except Exception as exc:  # noqa: BLE001
             return CuaResponse(
@@ -76,12 +79,14 @@ class CuaExecutor:
 
     @staticmethod
     def _build_llm_request_func() -> Callable[[list[dict[str, Any]]], str]:
+        env_values = dotenv_values(ENV_FILE)
+
         def llm_request(messages: list[dict[str, Any]]) -> str:
             from .models.llm_client import post_chat_completion
 
-            api_key = os.getenv("CUA_MODEL_API_KEY", "")
-            api_url = os.getenv("CUA_MODEL_API_BASE", "")
-            model = os.getenv("CUA_MODEL_NAME", "")
+            api_key = str(env_values.get("CUA_MODEL_API_KEY") or os.getenv("CUA_MODEL_API_KEY", "")).strip()
+            api_url = str(env_values.get("CUA_MODEL_API_BASE") or os.getenv("CUA_MODEL_API_BASE", "")).strip()
+            model = str(env_values.get("CUA_MODEL_NAME") or os.getenv("CUA_MODEL_NAME", "")).strip()
             if not api_key or not api_url or not model:
                 raise RuntimeError("CUA_MODEL_API_KEY, CUA_MODEL_API_BASE, and CUA_MODEL_NAME are required")
             response = post_chat_completion(api_url, api_key, model, messages)

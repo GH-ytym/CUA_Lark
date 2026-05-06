@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 屏幕截图模块（对齐成熟方案：不做缩放，保持原始分辨率与pyautogui.size()坐标系一致）
 """

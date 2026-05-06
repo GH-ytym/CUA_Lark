@@ -209,14 +209,14 @@ export function RuntimeCheckPanel({
 			<form className="runtime-config-form demo-runtime-card" onSubmit={(event) => event.preventDefault()}>
 				<div className="demo-card-title">
 					<h3>豆包视觉</h3>
-					<span>{checkStatus(data, "cua_model_api_key")}</span>
+					<span>{visualStatus(data, form)}</span>
 				</div>
 				<RuntimeInput
 					label="豆包视觉 Key"
 					type="password"
 					value={form.cua_model_api_key}
-					placeholder={maskedValue(data, "cua_model_api_key")}
-					hint="仅 CUA 视觉兜底需要；留空不覆盖已有 Key。"
+					placeholder={visualKeyPlaceholder(data, form)}
+					hint="默认启用豆包视觉；留空保存时不会覆盖已有 Key。"
 					onChange={(value) => updateField("cua_model_api_key", value)}
 				/>
 				<RuntimeInput
@@ -359,6 +359,20 @@ function checkStatus(data: RuntimeCheckResponse | null, id: string): string {
 		return "需确认";
 	}
 	return "缺失";
+}
+
+function visualStatus(data: RuntimeCheckResponse | null, form: RuntimeConfigPayload): string {
+	if (form.cua_model_api_key.trim() || form.cua_model_api_base.trim() || form.cua_model_name.trim()) {
+		return "已配置";
+	}
+	return checkStatus(data, "cua_model_api_key");
+}
+
+function visualKeyPlaceholder(data: RuntimeCheckResponse | null, form: RuntimeConfigPayload): string {
+	if (form.cua_model_api_key.trim()) {
+		return "已配置，留空不修改";
+	}
+	return maskedValue(data, "cua_model_api_key");
 }
 
 function readStorage<T extends Record<string, unknown>>(key: string, fallback: T): T {
