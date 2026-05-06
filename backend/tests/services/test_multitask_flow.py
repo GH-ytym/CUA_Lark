@@ -195,6 +195,9 @@ def test_orchestrator_executes_message_docs_calendar_and_keeps_sheet_structured_
     assert response.planned_actions[2].standard_action.payload["start_time"] == "2026-05-03T15:00:00+08:00"
     assert response.planned_actions[3].standard_action.payload["value"] == "已发布"
     assert task is not None
+    assert task.executor_result is not None
+    assert task.executor_result.summary == "planned 4 tasks; 3 completed, 1 structured-only"
+    assert task.executor_result.payload["mode"] == "multi_task"
     assert [step.name for step in task.steps] == [
         "task_created",
         "intent_parsed",

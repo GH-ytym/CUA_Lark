@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta, timezone
 import json
 import re
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from pydantic import Field
@@ -1034,7 +1034,11 @@ class IntentService:
 
     @staticmethod
     def _current_time_hint() -> str:
-        return datetime.now(ZoneInfo("Asia/Shanghai")).isoformat()
+        try:
+            tzinfo = ZoneInfo("Asia/Shanghai")
+        except ZoneInfoNotFoundError:
+            tzinfo = timezone(timedelta(hours=8), name="Asia/Shanghai")
+        return datetime.now(tzinfo).isoformat()
 
     @staticmethod
     def _pick_first(data: dict[str, object], *keys: str, default: object = None) -> object:

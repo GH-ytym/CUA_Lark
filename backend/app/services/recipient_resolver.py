@@ -209,6 +209,8 @@ class RecipientResolver:
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=8,
                 cwd=workdir,
             )
@@ -253,6 +255,8 @@ class RecipientResolver:
                 check=False,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=10,
                 cwd=workdir,
             )

@@ -8,14 +8,12 @@ import { useExecutionStream } from "../features/execution/useExecutionStream";
 import {
 	cancelExecution,
 	cancelLarkCliAccountSetup,
-	enableLarkCli,
 	executeAgentCommand,
 	getExecutionDetail,
 	getFeishuRuntimeConfig,
 	getLarkCliAccount,
 	getLarkCliAccountSetup,
 	getRuntimeCheck,
-	installLarkCli,
 	probeQwenModels,
 	startLarkCliAccountSetup,
 	updateRuntimeConfig,
@@ -38,8 +36,6 @@ import type {
 	LarkCliAccountCheck,
 	LarkCliAccountSetupJob,
 	LarkCliAccountSetupPayload,
-	LarkCliEnablePayload,
-	LarkCliInstallPayload,
 	QwenModelProbePayload,
 	QwenModelProbeResponse,
 	ResolutionCandidate,
@@ -77,33 +73,6 @@ type HistoryItem = {
 	detail?: ExecutionDetailResponse | null;
 };
 
-const starterHistory: HistoryItem[] = [
-	{
-		id: "starter-message",
-		title: "发送飞书消息",
-		description: "给梅家济发消息：“hello”",
-		status: "示例",
-		updatedAt: "刚刚",
-		prompt: DEFAULT_MESSAGE,
-	},
-	{
-		id: "starter-calendar",
-		title: "预约日程",
-		description: "创建明天 10:00 的联调会议",
-		status: "示例",
-		updatedAt: "今天",
-		prompt: "创建明天 10:00 的飞书会议并邀请项目组",
-	},
-	{
-		id: "starter-doc",
-		title: "生成文档",
-		description: "整理联调结论到飞书文档",
-		status: "示例",
-		updatedAt: "今天",
-		prompt: "把今天的联调结论整理成飞书文档",
-	},
-];
-
 export function SidebarPage() {
 	const feishuConfig = getFeishuRuntimeConfig();
 	const [message, setMessage] = useState(DEFAULT_MESSAGE);
@@ -117,7 +86,6 @@ export function SidebarPage() {
 	const [runtimeCheck, setRuntimeCheck] = useState<RuntimeCheckResponse | null>(null);
 	const [runtimeLoading, setRuntimeLoading] = useState(false);
 	const [runtimeSaving, setRuntimeSaving] = useState(false);
-	const [larkCliBusy, setLarkCliBusy] = useState(false);
 	const [larkAccountBusy, setLarkAccountBusy] = useState(false);
 	const [modelProbeBusy, setModelProbeBusy] = useState(false);
 	const [qwenModelProbe, setQwenModelProbe] = useState<QwenModelProbeResponse | null>(null);
@@ -125,8 +93,8 @@ export function SidebarPage() {
 	const [larkSetupJob, setLarkSetupJob] = useState<LarkCliAccountSetupJob | null>(null);
 	const [runtimeError, setRuntimeError] = useState("");
 	const [runtimeMessage, setRuntimeMessage] = useState("");
-	const [activeHistoryId, setActiveHistoryId] = useState("starter-message");
-	const [historyItems, setHistoryItems] = useState<HistoryItem[]>(starterHistory);
+	const [activeHistoryId, setActiveHistoryId] = useState("");
+	const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
 	const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
 	const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -168,7 +136,6 @@ export function SidebarPage() {
 	const currentStatus = detail?.status ?? response?.execution_status ?? response?.initial_status ?? "queued";
 	const canCancel = Boolean(response) && !isTerminalExecutionStatus(currentStatus);
 	const candidates = response?.resolution_candidates ?? [];
-	const requiredReady = useMemo(() => summarizeRuntime(runtimeCheck), [runtimeCheck]);
 
 	const refreshRuntimeCheck = useCallback(async () => {
 		setRuntimeLoading(true);
@@ -225,38 +192,6 @@ export function SidebarPage() {
 			setRuntimeError(probeError instanceof Error ? probeError.message : "模型检测失败");
 		} finally {
 			setModelProbeBusy(false);
-		}
-	}, []);
-
-	const downloadAndEnableLarkCli = useCallback(async (payload: LarkCliInstallPayload) => {
-		setLarkCliBusy(true);
-		setRuntimeError("");
-		setRuntimeMessage("");
-		try {
-			const result = await installLarkCli(payload);
-			setRuntimeCheck(result.detail);
-			const updated = result.updated_keys.length > 0 ? `，更新 ${result.updated_keys.join(", ")}` : "";
-			setRuntimeMessage(`${result.message}${updated}。路径：${result.bin_path}`);
-		} catch (installError) {
-			setRuntimeError(installError instanceof Error ? installError.message : "lark-cli 下载失败");
-		} finally {
-			setLarkCliBusy(false);
-		}
-	}, []);
-
-	const enableExistingLarkCli = useCallback(async (payload: LarkCliEnablePayload) => {
-		setLarkCliBusy(true);
-		setRuntimeError("");
-		setRuntimeMessage("");
-		try {
-			const result = await enableLarkCli(payload);
-			setRuntimeCheck(result.detail);
-			const updated = result.updated_keys.length > 0 ? `，更新 ${result.updated_keys.join(", ")}` : "";
-			setRuntimeMessage(`${result.message}${updated}。路径：${result.bin_path}`);
-		} catch (enableError) {
-			setRuntimeError(enableError instanceof Error ? enableError.message : "lark-cli 启用失败");
-		} finally {
-			setLarkCliBusy(false);
 		}
 	}, []);
 
@@ -352,7 +287,7 @@ export function SidebarPage() {
 			return;
 		}
 		const now = formatClock(new Date());
-		const nextHistoryId = confirmedEntityId ? activeHistoryId : makeId("chat");
+		const nextHistoryId = confirmedEntityId && activeHistoryId ? activeHistoryId : makeId("chat");
 		setLoading(true);
 		setError("");
 		if (appendUserTurn) {
@@ -521,6 +456,7 @@ export function SidebarPage() {
 				<div className="history-section">
 					<div className="sidebar-caption">历史消息</div>
 					<div className="history-list">
+						{historyItems.length === 0 ? <p className="empty-state">还没有历史消息。</p> : null}
 						{historyItems.map((item) => (
 							<button
 								type="button"
@@ -535,37 +471,11 @@ export function SidebarPage() {
 						))}
 					</div>
 				</div>
-				<div className="sidebar-footer">
-					<div>
-						<span className={`connection-dot ${runtimeCheck?.ready ? "connection-dot--ready" : ""}`} />
-						{runtimeCheck?.ready ? "环境就绪" : "待补配置"}
-					</div>
-					<small>{feishuConfig.isInFeishuClient ? "飞书客户端" : "浏览器预览"}</small>
-				</div>
 			</aside>
 
 			<section className="chat-panel" aria-label="对话界面">
-				<header className="chat-header">
-					<div>
-						<p className="eyebrow">CUA-Lark Agent</p>
-						<h1>飞书自动化助手</h1>
-					</div>
-					<div className="chat-header-actions">
-						<span className={`status-pill status-pill--${runtimeCheck?.ready ? "ready" : "setup"}`}>
-							{runtimeCheck?.ready ? "Ready" : "Setup"}
-						</span>
-						<span className="status-pill">{response ? statusText(currentStatus) : "待输入"}</span>
-					</div>
-				</header>
-
 				<div className="chat-stream" aria-live="polite">
-					{chatTurns.length === 0 ? (
-						<WelcomePanel
-							requiredReady={requiredReady}
-							apiBaseUrl={feishuConfig.apiBaseUrl}
-							onPickPrompt={(prompt) => setMessage(prompt)}
-						/>
-					) : null}
+					{chatTurns.length === 0 ? <WelcomePanel /> : null}
 
 					{chatTurns.map((turn) => (
 						<ChatBubble
@@ -652,38 +562,10 @@ export function SidebarPage() {
 			</section>
 
 			<aside className="settings-sidebar" aria-label="环境配置">
-				<div className="settings-overview">
-					<div>
-						<p className="eyebrow">Runtime</p>
-						<h2>环境配置</h2>
-					</div>
-					<span className={`settings-score ${runtimeCheck?.ready ? "settings-score--ready" : ""}`}>
-						{requiredReady.ready}/{requiredReady.total}
-					</span>
-				</div>
-				<div className="settings-mini-grid">
-					<div>
-						<span>LLM</span>
-						<strong>{checkStatus(runtimeCheck, "dashscope_api_key")}</strong>
-					</div>
-					<div>
-						<span>视觉模型</span>
-						<strong>{checkStatus(runtimeCheck, "cua_model_api_key")}</strong>
-					</div>
-					<div>
-						<span>CLI</span>
-						<strong>{checkStatus(runtimeCheck, "lark_cli")}</strong>
-					</div>
-					<div>
-						<span>飞书授权</span>
-						<strong>{checkStatus(runtimeCheck, "lark_cli_auth")}</strong>
-					</div>
-				</div>
 				<RuntimeCheckPanel
 					data={runtimeCheck}
 					loading={runtimeLoading}
 					saving={runtimeSaving}
-					cliBusy={larkCliBusy}
 					accountBusy={larkAccountBusy}
 					modelBusy={modelProbeBusy}
 					error={runtimeError}
@@ -694,8 +576,6 @@ export function SidebarPage() {
 					onRefresh={() => void refreshRuntimeCheck()}
 					onSave={(payload) => void saveRuntimeConfig(payload)}
 					onProbeModels={(payload) => void probeModels(payload)}
-					onInstallCli={(payload) => void downloadAndEnableLarkCli(payload)}
-					onEnableCli={(payload) => void enableExistingLarkCli(payload)}
 					onRefreshAccount={() => void refreshLarkAccount()}
 					onStartAccountSetup={(payload) => void startAccountSetup(payload)}
 					onCancelAccountSetup={(jobId) => void cancelAccountSetup(jobId)}
@@ -705,37 +585,10 @@ export function SidebarPage() {
 	);
 }
 
-function WelcomePanel({
-	requiredReady,
-	apiBaseUrl,
-	onPickPrompt,
-}: {
-	requiredReady: { ready: number; total: number };
-	apiBaseUrl: string;
-	onPickPrompt: (prompt: string) => void;
-}) {
+function WelcomePanel() {
 	return (
 		<div className="welcome-panel">
-			<p className="eyebrow">New Chat</p>
 			<h2>要让飞书助手做什么？</h2>
-			<div className="welcome-grid">
-				<button type="button" onClick={() => onPickPrompt(quickCommands[0])}>
-					<strong>发送消息</strong>
-					<span>按自然语言找人或群，并通过 lark-cli 执行。</span>
-				</button>
-				<button type="button" onClick={() => onPickPrompt(quickCommands[2])}>
-					<strong>预约会议</strong>
-					<span>解析时间、参会人和会议主题。</span>
-				</button>
-				<button type="button" onClick={() => onPickPrompt(quickCommands[3])}>
-					<strong>生成文档</strong>
-					<span>把结论沉淀到飞书云文档。</span>
-				</button>
-			</div>
-			<div className="welcome-meta">
-				<span>必需配置 {requiredReady.ready}/{requiredReady.total}</span>
-				<span>API {apiBaseUrl}</span>
-			</div>
 		</div>
 	);
 }
@@ -920,28 +773,6 @@ function ConfirmationBlock({
 	);
 }
 
-function summarizeRuntime(data: RuntimeCheckResponse | null): { ready: number; total: number } {
-	const requiredChecks = data?.checks.filter((item) => item.required) ?? [];
-	return {
-		ready: requiredChecks.filter((item) => item.status === "ok").length,
-		total: requiredChecks.length || 6,
-	};
-}
-
-function checkStatus(data: RuntimeCheckResponse | null, id: string): string {
-	const item = data?.checks.find((check) => check.id === id);
-	if (!item) {
-		return "待检测";
-	}
-	if (item.status === "ok") {
-		return "已配置";
-	}
-	if (item.status === "warning") {
-		return "需确认";
-	}
-	return "缺失";
-}
-
 function rebuildTurns(item: HistoryItem): ChatTurn[] {
 	const turns: ChatTurn[] = [
 		{
@@ -958,13 +789,6 @@ function rebuildTurns(item: HistoryItem): ChatTurn[] {
 			content: item.response.execution_summary || item.response.intent_reason || "任务已受理，正在跟踪执行状态。",
 			createdAt: item.updatedAt,
 			taskId: item.response.task_id,
-		});
-	} else {
-		turns.push({
-			id: makeId("history-assistant"),
-			role: "assistant",
-			content: "这条历史消息是示例或草稿，编辑后可重新发送。",
-			createdAt: item.updatedAt,
 		});
 	}
 	return turns;

@@ -350,6 +350,8 @@ async def install_lark_cli(payload: LarkCliInstallRequest) -> dict[str, object]:
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=180,
             cwd=install_dir,
         )
@@ -647,6 +649,8 @@ def _run_interactive_cli_step(job_id: str, step: str, message: str, args: list[s
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )
     except OSError as exc:
@@ -803,6 +807,8 @@ def _run_cli_quick(command: list[str], cwd: str | None = None) -> dict[str, obje
             check=False,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
             cwd=cwd,
         )
@@ -831,14 +837,28 @@ def _extract_account_label(auth_stdout: object, list_stdout: object) -> str:
             lower = line.lower()
             if "no user logged in" in lower or "no logged-in users" in lower:
                 continue
-            if any(key in lower for key in ("email", "user", "name", "open_id", "union_id")):
+            if any(key in lower for key in ("email", "username", "useropenid", "name", "open_id", "union_id")):
                 return line.strip()
     return ""
 
 
 def _find_account_label(value: object) -> str:
     if isinstance(value, dict):
-        for key in ("email", "name", "display_name", "en_name", "cn_name", "open_id", "union_id", "user_id"):
+        for key in (
+            "email",
+            "name",
+            "display_name",
+            "en_name",
+            "cn_name",
+            "userName",
+            "userOpenId",
+            "open_id",
+            "openId",
+            "union_id",
+            "unionId",
+            "user_id",
+            "userId",
+        ):
             raw = value.get(key)
             if isinstance(raw, str) and raw.strip():
                 return raw.strip()

@@ -95,7 +95,7 @@ a:hover {
 
 .history-sidebar {
 	display: grid;
-	grid-template-rows: auto auto 1fr auto;
+	grid-template-rows: auto auto 1fr;
 	gap: 18px;
 	padding: 18px;
 	border-right: 1px solid var(--border);
@@ -143,7 +143,6 @@ a:hover {
 
 .new-chat-button,
 .history-item,
-.welcome-grid button,
 .quick-command-row button,
 .composer-icon-button,
 .send-button,
@@ -159,7 +158,6 @@ a:hover {
 
 .new-chat-button:hover,
 .history-item:hover,
-.welcome-grid button:hover,
 .quick-command-row button:hover,
 .composer-icon-button:hover,
 .send-button:hover,
@@ -170,7 +168,6 @@ a:hover {
 
 .new-chat-button:active,
 .history-item:active,
-.welcome-grid button:active,
 .quick-command-row button:active,
 .composer-icon-button:active,
 .send-button:active,
@@ -185,7 +182,6 @@ a:hover {
 
 .new-chat-button:focus-visible,
 .history-item:focus-visible,
-.welcome-grid button:focus-visible,
 .quick-command-row button:focus-visible,
 .composer-icon-button:focus-visible,
 .send-button:focus-visible,
@@ -290,46 +286,9 @@ a:hover {
 	font-style: normal;
 }
 
-.sidebar-footer {
-	display: grid;
-	gap: 6px;
-	padding: 12px;
-	border: 1px solid var(--border);
-	border-radius: 14px;
-	background: var(--surface-soft);
-	color: #334155;
-	font-size: 13px;
-	font-weight: 800;
-}
-
-.sidebar-footer div {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-
-.sidebar-footer small {
-	color: var(--muted);
-	font-weight: 700;
-}
-
-.connection-dot {
-	display: inline-block;
-	width: 9px;
-	height: 9px;
-	border-radius: 50%;
-	background: var(--orange);
-	box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.14);
-}
-
-.connection-dot--ready {
-	background: var(--success);
-	box-shadow: 0 0 0 4px rgba(18, 168, 122, 0.14);
-}
-
 .chat-panel {
 	display: grid;
-	grid-template-rows: auto 1fr auto;
+	grid-template-rows: 1fr auto;
 	min-width: 0;
 	height: 100vh;
 	background: rgba(248, 251, 255, 0.68);
@@ -414,65 +373,24 @@ a:hover {
 .chat-stream {
 	min-height: 0;
 	overflow: auto;
-	padding: 28px 30px 18px;
+	padding: 52px 30px 18px;
 	scrollbar-gutter: stable;
 }
 
 .welcome-panel {
-	max-width: 760px;
-	margin: 7vh auto 28px;
+	display: grid;
+	min-height: 100%;
+	place-items: center;
+	width: min(100%, 900px);
+	margin: 0 auto;
+	padding-bottom: 8vh;
+	text-align: center;
 }
 
 .welcome-panel h2 {
-	max-width: 640px;
+	margin: 0;
 	font-size: clamp(32px, 5vw, 54px);
 	font-weight: 850;
-}
-
-.welcome-grid {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 12px;
-	margin-top: 26px;
-}
-
-.welcome-grid button {
-	display: grid;
-	gap: 8px;
-	min-height: 130px;
-	padding: 16px;
-	border: 1px solid var(--border);
-	border-radius: 16px;
-	color: inherit;
-	background: rgba(255, 255, 255, 0.84);
-	box-shadow: var(--shadow-soft);
-	text-align: left;
-}
-
-.welcome-grid strong {
-	font-size: 15px;
-}
-
-.welcome-grid span {
-	color: var(--muted);
-	font-size: 13px;
-	line-height: 1.55;
-}
-
-.welcome-meta {
-	display: flex;
-	flex-wrap: wrap;
-	gap: 8px;
-	margin-top: 14px;
-	color: #48617f;
-	font-size: 12px;
-	font-weight: 800;
-}
-
-.welcome-meta span {
-	padding: 7px 10px;
-	border-radius: 999px;
-	background: #edf6ff;
 }
 
 .chat-turn {
@@ -823,9 +741,7 @@ a:hover {
 }
 
 .settings-sidebar {
-	display: grid;
-	grid-template-rows: auto auto 1fr;
-	gap: 14px;
+	display: block;
 	padding: 18px;
 	border-left: 1px solid var(--border);
 }
@@ -891,6 +807,67 @@ a:hover {
 	padding-right: 4px;
 }
 
+.demo-runtime-panel {
+	height: 100%;
+	display: grid;
+	grid-template-rows: auto auto auto auto;
+	align-content: start;
+	gap: 14px;
+}
+
+.demo-runtime-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.demo-runtime-header h2 {
+	margin: 0;
+	color: var(--text);
+	font-size: 22px;
+	line-height: 1.15;
+}
+
+.demo-runtime-card {
+	display: grid;
+	gap: 12px;
+	padding: 14px;
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: rgba(255, 255, 255, 0.92);
+	box-shadow: var(--shadow-soft);
+}
+
+.demo-card-title {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.demo-card-title h3 {
+	margin: 0;
+	font-size: 16px;
+}
+
+.demo-card-title p {
+	margin: 4px 0 0;
+	color: var(--muted);
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+.demo-card-title span {
+	flex: 0 0 auto;
+	padding: 5px 8px;
+	border-radius: 999px;
+	color: #1d4ed8;
+	background: #dbeafe;
+	font-size: 12px;
+	font-weight: 850;
+}
+
 .panel {
 	padding: 14px;
 }
@@ -938,20 +915,6 @@ a:hover {
 	color: var(--muted);
 	line-height: 1.55;
 	font-size: 13px;
-}
-
-.runtime-config-form,
-.lark-cli-tool,
-.lark-account-tool,
-.runtime-check-grid,
-.setup-grid {
-	display: grid;
-	gap: 10px;
-	padding: 12px;
-	border: 1px solid var(--border);
-	border-radius: 16px;
-	background: rgba(255, 255, 255, 0.92);
-	box-shadow: var(--shadow-soft);
 }
 
 .runtime-config-form,
@@ -1106,6 +1069,7 @@ a:hover {
 
 .account-status-grid {
 	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 8px;
 	margin: 0;
 }
@@ -1612,10 +1576,6 @@ a:hover {
 		max-height: 230px;
 	}
 
-	.sidebar-footer {
-		display: none;
-	}
-
 	.chat-panel {
 		height: auto;
 		min-height: 100vh;
@@ -1633,7 +1593,6 @@ a:hover {
 		flex-direction: column;
 	}
 
-	.welcome-grid,
 	.assistant-grid {
 		grid-template-columns: 1fr;
 	}

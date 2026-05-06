@@ -1,7 +1,9 @@
 import asyncio
 import json
+from zoneinfo import ZoneInfoNotFoundError
 
 from app.domain.enums import CapabilityId, ExecutorType, IntentType
+from app.services import intent_service as intent_service_module
 from app.services.intent_service import IntentService
 from shared.error_codes import UnifiedErrorCode
 
@@ -370,6 +372,17 @@ def test_llm_unavailable_returns_unknown() -> None:
 
     assert decision.parse_source == "llm_unavailable"
     assert decision.standard_action.capability_id == CapabilityId.UNKNOWN
+
+
+def test_current_time_hint_falls_back_when_tzdata_is_missing(monkeypatch) -> None:
+    def fake_zone_info(_: str) -> object:
+        raise ZoneInfoNotFoundError("No time zone found with key Asia/Shanghai")
+
+    monkeypatch.setattr(intent_service_module, "ZoneInfo", fake_zone_info)
+
+    current_time = IntentService._current_time_hint()
+
+    assert current_time.endswith("+08:00")
 
 
 def test_invalid_first_plan_triggers_authoritative_reask() -> None:

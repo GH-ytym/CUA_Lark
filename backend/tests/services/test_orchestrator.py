@@ -877,8 +877,13 @@ def test_orchestrator_multitask_message_doc_calendar_executes_in_order() -> None
     service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
 
     response = asyncio.run(service.execute_command(request("send Alex, create doc, schedule review")))
+    task = service.get_task(response.task_id)
 
     assert response.execution_status == ExecutionStatus.COMPLETED
     assert executed == [CapabilityId.IM_MESSAGE_SEND, CapabilityId.DOC_CREATE, CapabilityId.CALENDAR_CREATE]
     assert response.execution_payload["mode"] == "multi_task"
     assert response.execution_payload["completed_count"] == 3
+    assert task is not None
+    assert task.executor_result is not None
+    assert task.executor_result.summary == "planned 3 tasks; 3 completed, 0 structured-only"
+    assert task.executor_result.payload["mode"] == "multi_task"

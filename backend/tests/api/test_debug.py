@@ -202,6 +202,42 @@ def test_lark_cli_account_reports_config_and_auth(monkeypatch, tmp_path) -> None
     assert data["account_label"] == "me@example.com"
 
 
+def test_lark_cli_account_extracts_user_name_from_cli_status(monkeypatch, tmp_path) -> None:
+    cli_bin = tmp_path / "lark-cli"
+    cli_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    cli_bin.chmod(0o755)
+    monkeypatch.chdir(tmp_path)
+
+    def fake_resolve_lark_cli_path(_: str) -> Path:
+        return cli_bin
+
+    def fake_run_cli_quick(command: list[str], cwd: str | None = None) -> dict[str, object]:
+        if command[1:3] == ["config", "show"]:
+            return {"returncode": 0, "stdout": '{"appId":"cli_app"}', "stderr": ""}
+        if command[1:3] == ["auth", "status"]:
+            return {
+                "returncode": 0,
+                "stdout": '{\n  "identity": "user",\n  "userName": "测试用户",\n  "userOpenId": "ou_test"\n}',
+                "stderr": "",
+            }
+        if command[1:3] == ["auth", "list"]:
+            return {"returncode": 0, "stdout": "[]", "stderr": ""}
+        return {"returncode": 0, "stdout": "ok", "stderr": ""}
+
+    from app.api.routes import debug
+
+    monkeypatch.setattr(debug, "_resolve_lark_cli_path", fake_resolve_lark_cli_path)
+    monkeypatch.setattr(debug, "_run_cli_quick", fake_run_cli_quick)
+
+    client = TestClient(create_app())
+    response = client.get("/api/debug/lark-cli/account")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["authenticated"] is True
+    assert data["account_label"] == "测试用户"
+
+
 def test_lark_cli_account_does_not_treat_bot_only_status_as_user_auth(monkeypatch, tmp_path) -> None:
     cli_bin = tmp_path / "lark-cli"
     cli_bin.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
@@ -286,6 +322,41 @@ def test_lark_cli_setup_job_parses_verification_url(monkeypatch, tmp_path) -> No
     assert data["verification_url"].startswith("https://open.feishu.cn/page/cli")
     assert data["user_code"] == "ABCD-EFGH"
     assert data["account_label"] == "me@example.com"
+
+
+def test_run_interactive_cli_step_decodes_utf8_output_on_windows(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    from app.api.routes import debug
+
+    cli_bin = tmp_path / "fake-lark-cli.py"
+    cli_bin.write_text(
+        "\n".join(
+            [
+                "import sys",
+                "sys.stdout.buffer.write('等待授权：https://open.feishu.cn/page/cli?user_code=ABCD-EFGH\\n'.encode('utf-8'))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    debug.LARK_CLI_SETUP_JOBS.clear()
+    job = debug.LarkCliSetupJob(job_id="utf8-job")
+    debug.LARK_CLI_SETUP_JOBS[job.job_id] = job
+
+    monkeypatch.setattr(debug, "_configured_lark_cli_bin", lambda: "python")
+    monkeypatch.setattr(debug, "_configured_lark_cli_workdir", lambda: None)
+
+    ok = debug._run_interactive_cli_step(
+        job_id=job.job_id,
+        step="auth",
+        message="等待授权",
+        args=[str(cli_bin)],
+    )
+
+    result = debug._job_response(job)
+    assert ok is True
+    assert result["verification_url"].startswith("https://open.feishu.cn/page/cli")
+    assert result["user_code"] == "ABCD-EFGH"
+    assert "codec can't decode" not in result["error"]
 
 
 def test_lark_cli_setup_reuses_running_job(monkeypatch, tmp_path) -> None:

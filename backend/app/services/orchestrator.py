@@ -7,7 +7,7 @@ import hashlib
 import json
 
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
-from app.domain.models import OrchestrationTask, PlannedActionItem, StandardAction, TaskStep
+from app.domain.models import ExecutorResult, OrchestrationTask, PlannedActionItem, StandardAction, TaskStep
 from app.schemas.chat import ExecuteCommandRequest, ExecuteCommandResponse
 from app.services.cua_service import CuaService
 from app.services.intent_service import IntentDecision, IntentService
@@ -276,6 +276,18 @@ class OrchestratorService:
                 )
 
         if len(task.planned_actions) > 1:
+            aggregate_duration_ms = round(
+                sum(self._execution_payload_duration_ms(item.execution_payload) for item in task.planned_actions),
+                2,
+            )
+            aggregate_executor = (
+                ExecutorType.CUA
+                if any(
+                    isinstance(item.execution_payload, dict) and item.execution_payload.get("mode") == "cua_fallback"
+                    for item in task.planned_actions
+                )
+                else ExecutorType.CLI
+            )
             execution_payload = {
                 "mode": "multi_task",
                 "actions": [item.model_dump() for item in task.planned_actions],
@@ -298,6 +310,15 @@ class OrchestratorService:
                 execution_status = ExecutionStatus.COMPLETED
                 task.status = ExecutionStatus.COMPLETED
                 execution_summary = f"planned {len(task.planned_actions)} tasks; {completed_count} completed, {plan_only_count} structured-only"
+            task.executor_result = ExecutorResult(
+                executor=aggregate_executor,
+                success=execution_status == ExecutionStatus.COMPLETED,
+                status=execution_status,
+                summary=execution_summary,
+                payload=execution_payload,
+                error_code=cua_error_code or cli_error_code,
+                duration_ms=aggregate_duration_ms,
+            )
 
         task.updated_at = datetime.now(UTC)
         self._tasks[task.task_id] = task
@@ -713,4 +734,17 @@ class OrchestratorService:
                 summary=summary,
                 payload=payload or {},
             )
+        )
+
+    @staticmethod
+    def _execution_payload_duration_ms(payload: dict[str, object]) -> float:
+        if not isinstance(payload, dict):
+            return 0.0
+        raw_steps = payload.get("steps")
+        if not isinstance(raw_steps, list):
+            return 0.0
+        return sum(
+            float(step.get("duration_ms", 0) or 0)
+            for step in raw_steps
+            if isinstance(step, dict)
         )
