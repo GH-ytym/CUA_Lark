@@ -8,9 +8,9 @@ from .schema import MemoryItem, MemoryType
 class MemoryManager:
     """记忆管理器，负责记忆的存储、检索、持久化"""
     
-    def __init__(self, storage_path: str = "cua_memory.json"):
+    def __init__(self, storage_path: str | None = None):
         self.memories: List[MemoryItem] = []
-        self.storage_path = Path(storage_path)
+        self.storage_path = Path(storage_path or os.getenv("CUA_MEMORY_PATH", "cua_memory.json"))
         # 自动加载已有的记忆
         self._load_from_disk()
     
@@ -33,11 +33,18 @@ class MemoryManager:
         self._save_to_disk()
         return memory
     
-    def get_recent_memories(self, limit: int = 10, memory_type: Optional[MemoryType] = None) -> List[MemoryItem]:
+    def get_recent_memories(
+        self,
+        limit: int = 10,
+        memory_type: Optional[MemoryType] = None,
+        scope: Optional[Dict[str, Any]] = None,
+    ) -> List[MemoryItem]:
         """获取最近的记忆"""
         filtered = self.memories
         if memory_type:
             filtered = [m for m in filtered if m.memory_type == memory_type]
+        if scope:
+            filtered = [m for m in filtered if self._matches_scope(m.context, scope)]
         
         # 按时间倒序
         sorted_memories = sorted(filtered, key=lambda x: x.timestamp, reverse=True)
@@ -55,9 +62,9 @@ class MemoryManager:
         results = sorted(results, key=lambda x: (x.importance, x.timestamp), reverse=True)
         return results[:limit]
     
-    def get_action_history(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def get_action_history(self, limit: int = 20, scope: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """获取历史动作记录，用于上下文构建"""
-        action_memories = self.get_recent_memories(limit, MemoryType.ACTION)
+        action_memories = self.get_recent_memories(limit, MemoryType.ACTION, scope=scope)
         return [
             {
                 "action": m.content,
@@ -67,9 +74,14 @@ class MemoryManager:
             for m in action_memories
         ]
     
-    def get_failure_cases(self, task_type: str = None, limit: int = 5) -> List[MemoryItem]:
+    def get_failure_cases(
+        self,
+        task_type: str = None,
+        limit: int = 5,
+        scope: Optional[Dict[str, Any]] = None,
+    ) -> List[MemoryItem]:
         """获取失败案例记忆，用于避免重复犯错"""
-        failures = self.get_recent_memories(limit, MemoryType.FAILURE)
+        failures = self.get_recent_memories(limit, MemoryType.FAILURE, scope=scope)
         if task_type:
             failures = [f for f in failures if f.context.get("task_type") == task_type]
         return failures
@@ -82,11 +94,12 @@ class MemoryManager:
     def _save_to_disk(self):
         """将记忆持久化到磁盘"""
         try:
+            self.storage_path.parent.mkdir(parents=True, exist_ok=True)
             data = [m.to_dict() for m in self.memories]
             with open(self.storage_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"⚠️  记忆保存失败: {str(e)}")
+            print(f"CUA memory save failed: {str(e)}")
     
     def _load_from_disk(self):
         """从磁盘加载记忆"""
@@ -95,14 +108,14 @@ class MemoryManager:
                 with open(self.storage_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.memories = [MemoryItem.from_dict(item) for item in data]
-                print(f"✅ 加载了 {len(self.memories)} 条历史记忆")
+                print(f"Loaded {len(self.memories)} CUA memories")
             except Exception as e:
-                print(f"⚠️  记忆加载失败: {str(e)}")
+                print(f"CUA memory load failed: {str(e)}")
                 self.memories = []
     
-    def format_for_prompt(self, max_memories: int = 10) -> str:
+    def format_for_prompt(self, max_memories: int = 10, scope: Optional[Dict[str, Any]] = None) -> str:
         """将记忆格式化为LLM提示词中的上下文"""
-        recent = self.get_recent_memories(max_memories)
+        recent = self.get_recent_memories(max_memories, scope=scope)
         if not recent:
             return "无历史记忆"
         
@@ -115,6 +128,18 @@ class MemoryManager:
             memory_text += "\n"
         
         return memory_text
+
+    @staticmethod
+    def _matches_scope(context: Dict[str, Any], scope: Dict[str, Any]) -> bool:
+        """Return whether one memory context belongs to the requested scope."""
+        for key in ("session_id", "app_name", "capability_id"):
+            expected = str(scope.get(key, "") or "").strip()
+            if not expected:
+                continue
+            actual = str(context.get(key, "") or "").strip()
+            if actual != expected:
+                return False
+        return True
 
 # 全局记忆管理器实例
 global_memory = MemoryManager()

@@ -198,8 +198,11 @@ class OrchestratorService:
                             action=item_action,
                             raw_message=item.raw_message or payload.message,
                             task_id=task.task_id,
+                            session_id=task.session_id,
+                            chain_id=task.task_id,
                             cli_error_code=cli_error_code,
                             cli_payload=execution_payload,
+                            retry_attempts=max(1, int(self.retry_service.policy.max_attempts)),
                         )
                         task.executor_result = cua_result
                         execution_status = cua_result.status

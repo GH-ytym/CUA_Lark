@@ -1,168 +1,103 @@
 """
-CUA (Computer-Use Agent) 视觉操作模块
-提供飞书桌面端视觉操作的触发规则、动作原语和安全控制能力
-坐标体系：统一使用比例坐标(0-1000)，对齐成熟方案
+CUA (Computer-Use Agent) public package contract.
+
+Keep this module lightweight so backend services can import schemas, trigger
+rules, and memory contracts without loading desktop-only dependencies.
 """
 
-from .trigger_rules import (
-    LarkCliError,
-    CuaAbortReason,
-    CuaConfig,
-    TriggerRuleEvaluator
-)
+from __future__ import annotations
 
+from importlib import import_module
+from typing import Any
+
+from .executor import CuaExecutor
+from .memory import MemoryItem, MemoryManager, MemoryType, global_memory
 from .schemas import (
-    CuaRequest,
-    VlmResponse,
-    CuaResponse,
+    BoundingBox,
     CuaDiagnosisReport,
     CuaFixPlan,
-    ElementType,
-    ElementQuality,
-    BoundingBox,
+    CuaMemoryUsage,
+    CuaRequest,
+    CuaResponse,
     DetectedElement,
-    ElementDetectionResult
+    ElementDetectionResult,
+    ElementQuality,
+    ElementType,
+    VlmResponse,
 )
+from .trigger_rules import CuaAbortReason, CuaConfig, LarkCliError, TriggerRuleEvaluator
 
-from .vision_io import (
-    capture_screen_as_base64
-)
 
-from .primitives import (
-    focus_and_maximize,
-    verify_window_focus,
-    detect_user_activity,
-    reset_user_activity_flag,
-    safe_click,
-    safe_double_click,
-    safe_move,
-    safe_input,
-    safe_press,
-    safe_scroll,
-    safe_hotkey,
-    save_state_for_backtrack
-)
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "capture_screen_as_base64": ("cua.vision_io", "capture_screen_as_base64"),
+    "focus_and_maximize": ("cua.primitives", "focus_and_maximize"),
+    "verify_window_focus": ("cua.primitives", "verify_window_focus"),
+    "detect_user_activity": ("cua.primitives", "detect_user_activity"),
+    "reset_user_activity_flag": ("cua.primitives", "reset_user_activity_flag"),
+    "safe_click": ("cua.primitives", "safe_click"),
+    "safe_double_click": ("cua.primitives", "safe_double_click"),
+    "safe_move": ("cua.primitives", "safe_move"),
+    "safe_input": ("cua.primitives", "safe_input"),
+    "safe_press": ("cua.primitives", "safe_press"),
+    "safe_scroll": ("cua.primitives", "safe_scroll"),
+    "safe_hotkey": ("cua.primitives", "safe_hotkey"),
+    "save_state_for_backtrack": ("cua.primitives", "save_state_for_backtrack"),
+    "capture_screen_base64": ("cua.perception.screen_capture", "capture_screen_base64"),
+    "build_marker_base64": ("cua.perception.screen_capture", "build_marker_base64"),
+    "save_screenshot_with_marker": ("cua.perception.screen_capture", "save_screenshot_with_marker"),
+    "fetch_model_list": ("cua.models.llm_client", "fetch_model_list"),
+    "test_model_connection": ("cua.models.llm_client", "test_model_connection"),
+    "post_chat_completion": ("cua.models.llm_client", "post_chat_completion"),
+    "parse_action_json": ("cua.operators.action_executor", "parse_action_json"),
+    "execute_parsed_actions": ("cua.operators.action_executor", "execute_parsed_actions"),
+    "execute_actions_from_text": ("cua.operators.action_executor", "execute_actions_from_text"),
+    "activate_feishu": ("cua.utils.feishu_app_control", "activate_feishu"),
+    "is_foreground_window": ("cua.utils.feishu_app_control", "is_foreground_window"),
+    "get_window_rect": ("cua.utils.feishu_app_control", "get_window_rect"),
+    "ElementDetector": ("cua.element_detector", "ElementDetector"),
+    "DslGenerator": ("cua.dsl.generator", "DslGenerator"),
+    "DslEvaluator": ("cua.dsl.evaluator", "DslEvaluator"),
+    "DocumentCaseExtractor": ("cua.dsl.doc_extractor", "DocumentCaseExtractor"),
+    "BenchmarkRunner": ("cua.benchmark", "BenchmarkRunner"),
+    "BenchmarkCase": ("cua.benchmark", "BenchmarkCase"),
+    "BenchmarkResult": ("cua.benchmark", "BenchmarkResult"),
+    "MdReportGenerator": ("cua.report.md", "MdReportGenerator"),
+    "InsightAnalyzer": ("cua.report.insight_analyzer", "InsightAnalyzer"),
+}
 
-# executor模块已移除，使用AgentLoopRunner替代
 
-from .perception.screen_capture import (
-    capture_screen_base64,
-    build_marker_base64,
-    save_screenshot_with_marker
-)
+def __getattr__(name: str) -> Any:
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module 'cua' has no attribute {name!r}")
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    module = import_module(module_name)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
-from .models.llm_client import (
-    fetch_model_list,
-    test_model_connection,
-    post_chat_completion
-)
-
-from .operators.action_executor import (
-    parse_action_json,
-    execute_parsed_actions,
-    execute_actions_from_text
-)
-
-from .utils.feishu_app_control import (
-    activate_feishu,
-    is_foreground_window,
-    get_window_rect
-)
-
-from .element_detector import (
-    ElementDetector
-)
-
-# DSL相关模块
-from .dsl.generator import (
-    DslGenerator
-)
-
-from .dsl.evaluator import (
-    DslEvaluator
-)
-
-from .dsl.doc_extractor import (
-    DocumentCaseExtractor
-)
-# 基准测试模块
-from .benchmark import (
-    BenchmarkRunner,
-    BenchmarkCase,
-    BenchmarkResult
-)
-
-# 记忆功能模块
-from .memory import (
-    MemoryType,
-    MemoryItem,
-    MemoryManager,
-    global_memory
-)
-
-from .report.md import (
-    MdReportGenerator
-)
-
-from .report.insight_analyzer import (
-    InsightAnalyzer
-)
 
 __version__ = "3.0.0"
+
 __all__ = [
     "LarkCliError",
     "CuaAbortReason",
     "CuaConfig",
     "TriggerRuleEvaluator",
+    "CuaExecutor",
     "CuaRequest",
     "VlmResponse",
     "CuaResponse",
     "CuaDiagnosisReport",
     "CuaFixPlan",
-    "capture_screen_as_base64",
-    "focus_and_maximize",
-    "verify_window_focus",
-    "detect_user_activity",
-    "reset_user_activity_flag",
-    "safe_click",
-    "safe_double_click",
-    "safe_move",
-    "safe_input",
-    "safe_press",
-    "safe_scroll",
-    "safe_hotkey",
-    "save_state_for_backtrack",
-    "capture_screen_base64",
-    "build_marker_base64",
-    "save_screenshot_with_marker",
-    "fetch_model_list",
-    "test_model_connection",
-    "post_chat_completion",
-    "parse_action_json",
-    "execute_parsed_actions",
-    "execute_actions_from_text",
-    "activate_feishu",
-    "is_foreground_window",
-    "get_window_rect",
-
+    "CuaMemoryUsage",
+    "MemoryType",
+    "MemoryItem",
+    "MemoryManager",
+    "global_memory",
     "ElementType",
     "ElementQuality",
     "BoundingBox",
     "DetectedElement",
     "ElementDetectionResult",
-    "ElementDetector",
-    
-    # DSL相关导出
-    "DslGenerator",
-    "DslEvaluator",
-    "DocumentCaseExtractor",
-    "BenchmarkRunner",
-    "BenchmarkCase", 
-    "BenchmarkResult",
-    "MemoryType",
-    "MemoryItem",
-    "MemoryManager",
-    "global_memory",
-    "MdReportGenerator",
-    "InsightAnalyzer",
+    *_LAZY_EXPORTS.keys(),
 ]

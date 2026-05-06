@@ -343,7 +343,15 @@ def test_orchestrator_cli_failure_does_not_retry_and_hands_off_once_to_cua() -> 
         )
 
     def fake_cua_execute_fallback(*_: object, **kwargs: object) -> ExecutorResult:
-        cua_calls.append({"cli_error_code": kwargs.get("cli_error_code"), "raw_message": kwargs.get("raw_message")})
+        cua_calls.append(
+            {
+                "cli_error_code": kwargs.get("cli_error_code"),
+                "raw_message": kwargs.get("raw_message"),
+                "session_id": kwargs.get("session_id"),
+                "chain_id": kwargs.get("chain_id"),
+                "retry_attempts": kwargs.get("retry_attempts"),
+            }
+        )
         return ExecutorResult(
             executor=ExecutorType.CUA,
             success=True,
@@ -361,8 +369,68 @@ def test_orchestrator_cli_failure_does_not_retry_and_hands_off_once_to_cua() -> 
     assert cli_call_count == 1
     assert len(cua_calls) == 1
     assert cua_calls[0]["cli_error_code"] == int(UnifiedErrorCode.PERMISSION_DENIED)
+    assert cua_calls[0]["session_id"] == "s1"
+    assert isinstance(cua_calls[0]["chain_id"], str)
+    assert cua_calls[0]["retry_attempts"] == service.retry_service.policy.max_attempts
     assert response.cua_should_trigger is True
     assert response.execution_status == ExecutionStatus.COMPLETED
+
+
+def test_orchestrator_preserves_retry_context_when_handing_off_to_cua() -> None:
+    service = OrchestratorService()
+    payload = {
+        "chat_hint": "项目群",
+        "chat_id": "oc_proj",
+        "user_id": "",
+        "text": "今晚发布",
+        "resolution_status": "resolved",
+    }
+    cli_call_count = 0
+    cua_calls: list[dict[str, object]] = []
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return decision(payload)
+
+    def fake_execute_action(*_: object, **__: object) -> ExecutorResult:
+        nonlocal cli_call_count
+        cli_call_count += 1
+        return ExecutorResult(
+            executor=ExecutorType.CLI,
+            success=False,
+            status=ExecutionStatus.CLI_FAILED,
+            summary="cli timeout",
+            error_code=int(UnifiedErrorCode.TIMEOUT),
+            payload={
+                "domain": "message",
+                "dry_run": False,
+                "steps": [],
+                "error": {"code": int(UnifiedErrorCode.TIMEOUT), "name": "operation_timeout"},
+            },
+        )
+
+    def fake_cua_execute_fallback(*_: object, **kwargs: object) -> ExecutorResult:
+        cua_calls.append(dict(kwargs))
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=False,
+            status=ExecutionStatus.FAILED,
+            summary="cua fallback failed",
+            payload={"mode": "cua_fallback"},
+            error_code=int(UnifiedErrorCode.EXECUTION_ERROR),
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cli_service.execute_action = fake_execute_action  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request()))
+
+    assert cli_call_count == service.retry_service.policy.max_attempts
+    assert len(cua_calls) == 1
+    assert cua_calls[0]["cli_error_code"] == int(UnifiedErrorCode.TIMEOUT)
+    assert cua_calls[0]["retry_attempts"] == service.retry_service.policy.max_attempts
+    assert cua_calls[0]["session_id"] == "s1"
+    assert response.execution_status == ExecutionStatus.FAILED
 
 
 def test_orchestrator_docs_failure_reuses_existing_fallback_flow() -> None:

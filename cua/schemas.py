@@ -87,7 +87,21 @@ class CuaRequest(BaseModel):
     上层编排服务调用CUA执行器时传入的参数结构
     """
     instruction: str = Field(description="用户的自然语言指令，清晰描述需要CUA完成的具体任务")
-    app_name: str = Field(default="飞书", description="要操作的目标应用名称，默认操作飞书客户端")
+    app: str = Field(default="飞书", description="要操作的目标应用名称")
+    task: dict[str, Any] = Field(default_factory=dict, description="任务标识：id/session/chain")
+    action: dict[str, Any] = Field(default_factory=dict, description="动作摘要：id/payload")
+    trigger: dict[str, Any] = Field(default_factory=dict, description="触发摘要：source/code/name/attempts/summary")
+    memory: dict[str, Any] = Field(default_factory=dict, description="记忆作用域：session/app/action")
+
+
+class CuaMemoryUsage(BaseModel):
+    """
+    CUA记忆使用摘要，返回给后端用于任务详情和调试日志透传。
+    """
+    scope: dict[str, Any] = Field(default_factory=dict, description="本次使用的记忆作用域")
+    used: List[str] = Field(default_factory=list, description="注入prompt的记忆ID")
+    written: List[str] = Field(default_factory=list, description="本次执行写入的记忆ID")
+    summary: str = Field(default="", description="记忆使用摘要")
 
 
 class VlmResponse(BaseModel):
@@ -134,3 +148,4 @@ class CuaResponse(BaseModel):
     history_states: List[Any] = Field(default_factory=list, description="执行轨迹历史，记录每一步的操作、截图、识别结果等，用于问题排查和回溯")
     diagnosis_report: Optional[CuaDiagnosisReport] = Field(None, description="失败时的诊断报告，只有执行失败时有值")
     fix_plan: Optional[CuaFixPlan] = Field(None, description="失败时的修复方案，只有执行失败时有值")
+    memory: Optional[CuaMemoryUsage] = Field(None, description="本次CUA执行使用和写入的记忆元数据")

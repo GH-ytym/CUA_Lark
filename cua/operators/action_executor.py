@@ -6,11 +6,15 @@ import re
 import json
 import time
 import logging
-import pyautogui
 from typing import List, Dict, Any
 
-pyautogui.FAILSAFE = True
-HAS_PYAUTOGUI = True
+try:
+    import pyautogui
+    pyautogui.FAILSAFE = True
+    HAS_PYAUTOGUI = True
+except ImportError:
+    pyautogui = None
+    HAS_PYAUTOGUI = False
 
 try:
     import pyperclip
