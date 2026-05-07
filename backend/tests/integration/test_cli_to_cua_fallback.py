@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import time
 
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import ExecutorResult, StandardAction
@@ -6,6 +7,20 @@ from app.main import create_app
 from app.services.cli_failure_diagnosis_service import CliFailureDiagnosis
 from app.services.intent_service import IntentDecision
 from shared.error_codes import UnifiedErrorCode
+
+
+def wait_for_terminal_detail(client: TestClient, task_id: str, timeout_seconds: float = 2.0) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    last_detail: dict[str, object] | None = None
+    while time.monotonic() < deadline:
+        response = client.get(f"/api/executions/{task_id}")
+        assert response.status_code == 200
+        last_detail = response.json()
+        if last_detail["status"] in {"completed", "failed", "canceled"}:
+            return last_detail
+        time.sleep(0.02)
+    assert last_detail is not None
+    return last_detail
 
 
 def test_execute_command_automatically_falls_back_to_cua(monkeypatch) -> None:
@@ -90,6 +105,7 @@ def test_execute_command_automatically_falls_back_to_cua(monkeypatch) -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["execution_status"] == "completed"
-    assert data["cua_should_trigger"] is True
-    assert data["execution_payload"]["mode"] == "cua_fallback"
+    assert data["execution_status"] == "queued"
+    detail = wait_for_terminal_detail(client, data["task_id"])
+    assert detail["status"] == "completed"
+    assert detail["executor_result"]["payload"]["mode"] == "cua_fallback"

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import hashlib
 import json
+import logging
+from typing import Any
 
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import ExecutorResult, OrchestrationTask, PlannedActionItem, StandardAction, TaskStep
@@ -15,6 +18,9 @@ from app.services.intent_service import IntentDecision, IntentService
 from app.services.lark_cli_service import LarkCliService
 from app.services.retry_service import RetryService
 from shared.error_codes import UnifiedErrorCode, cli_error_name, normalize_error_code
+
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorService:
@@ -35,9 +41,10 @@ class OrchestratorService:
         self.diagnosis_service = diagnosis_service or CliFailureDiagnosisService(intent_service=self.intent_service)
         self._tasks: dict[str, OrchestrationTask] = {}
         self._canceled_task_ids: set[str] = set()
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
-    async def execute_command(self, payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
-        """Create a task, parse it, optionally execute CLI, and return API ack."""
+    def submit_command(self, payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
+        """Create a task immediately and execute it in the background for SSE subscribers."""
         task = OrchestrationTask(
             session_id=payload.session_id,
             user_id=payload.user_id,
@@ -45,6 +52,43 @@ class OrchestratorService:
         )
         self._tasks[task.task_id] = task
         self._record_step(task, "task_created", ExecutionStatus.QUEUED, "task accepted")
+        handle = asyncio.create_task(self._execute_command_background(payload=payload, task=task))
+        self._background_tasks.add(handle)
+        handle.add_done_callback(self._handle_background_task_done)
+        return self._response_from_task(
+            task=task,
+            selected_executor=ExecutorType.NONE,
+            parsed_intent=IntentType.UNKNOWN,
+            intent_reason="任务已受理，正在后台执行。",
+            action_plan=[],
+            parse_source="pending",
+            structured_payload={},
+            needs_confirmation=False,
+            confirmation_message="",
+            resolution_candidates=[],
+            execution_status=ExecutionStatus.QUEUED,
+            execution_summary="任务已受理，状态将通过长连接持续更新。",
+            cli_error_code=None,
+            cua_error_code=None,
+            handoff_error_code=None,
+            cua_should_trigger=False,
+            execution_payload={},
+        )
+
+    async def execute_command(
+        self,
+        payload: ExecuteCommandRequest,
+        task: OrchestrationTask | None = None,
+    ) -> ExecuteCommandResponse:
+        """Create a task, parse it, optionally execute CLI, and return API ack."""
+        if task is None:
+            task = OrchestrationTask(
+                session_id=payload.session_id,
+                user_id=payload.user_id,
+                raw_message=payload.message,
+            )
+            self._tasks[task.task_id] = task
+            self._record_step(task, "task_created", ExecutionStatus.QUEUED, "task accepted")
 
         parsed = await self.intent_service.parse(message=payload.message, context_hint=payload.context_hint)
         structured_payload = self._extract_payload(parsed)
@@ -209,7 +253,8 @@ class OrchestratorService:
                                     execution_summary,
                                 )
                                 break
-                            cua_result = self._execute_cua_fallback(
+                            cua_result = await asyncio.to_thread(
+                                self._execute_cua_fallback,
                                 task=task,
                                 item=item,
                                 action=item_action,
@@ -241,7 +286,8 @@ class OrchestratorService:
                         item_action.capability_id.value,
                         {"order": item.order, "raw_message": item.raw_message},
                     )
-                    result = self.retry_service.run(
+                    result = await asyncio.to_thread(
+                        self.retry_service.run,
                         lambda: self.cli_service.execute_action(action=item_action, dry_run=False),
                         is_success=lambda item_result: item_result.success,
                         error_code=lambda item_result: item_result.error_code,
@@ -335,7 +381,8 @@ class OrchestratorService:
                                 execution_summary,
                             )
                             break
-                        cua_result = self._execute_cua_fallback(
+                        cua_result = await asyncio.to_thread(
+                            self._execute_cua_fallback,
                             task=task,
                             item=item,
                             action=item_action,
@@ -429,21 +476,19 @@ class OrchestratorService:
         task.updated_at = datetime.now(UTC)
         self._tasks[task.task_id] = task
         response_action = task.planned_actions[0].standard_action if task.planned_actions else response_action
+        task.standard_action = response_action
         response_payload = self._response_payload_for_items(
             planned_actions=task.planned_actions,
             fallback_payload=response_payload,
         )
 
-        return ExecuteCommandResponse(
-            task_id=task.task_id,
-            initial_status=ExecutionStatus.QUEUED,
+        return self._response_from_task(
+            task=task,
             selected_executor=parsed.selected_executor,
             parsed_intent=parsed.intent_type,
             intent_reason=parsed.reason,
             action_plan=parsed.action_plan,
             parse_source=parsed.parse_source,
-            standard_action=response_action,
-            planned_actions=task.planned_actions,
             structured_payload=response_payload,
             needs_confirmation=needs_confirmation,
             confirmation_message=confirmation_message,
@@ -455,7 +500,6 @@ class OrchestratorService:
             handoff_error_code=handoff_error_code,
             cua_should_trigger=any_cua_triggered,
             execution_payload=execution_payload,
-            accepted_at=task.created_at,
         )
 
     def get_task(self, task_id: str) -> OrchestrationTask | None:
@@ -483,6 +527,87 @@ class OrchestratorService:
             "用户在前端请求取消任务。",
         )
         return task
+
+    @staticmethod
+    def _response_from_task(
+        *,
+        task: OrchestrationTask,
+        selected_executor: ExecutorType,
+        parsed_intent: IntentType,
+        intent_reason: str,
+        action_plan: list[str],
+        parse_source: str,
+        structured_payload: dict[str, object],
+        needs_confirmation: bool,
+        confirmation_message: str,
+        resolution_candidates: list[dict[str, object]],
+        execution_status: ExecutionStatus,
+        execution_summary: str,
+        cli_error_code: int | None,
+        cua_error_code: int | None,
+        handoff_error_code: int | None,
+        cua_should_trigger: bool,
+        execution_payload: dict[str, object],
+    ) -> ExecuteCommandResponse:
+        return ExecuteCommandResponse(
+            task_id=task.task_id,
+            initial_status=ExecutionStatus.QUEUED,
+            selected_executor=selected_executor,
+            parsed_intent=parsed_intent,
+            intent_reason=intent_reason,
+            action_plan=action_plan,
+            parse_source=parse_source,
+            standard_action=task.standard_action,
+            planned_actions=task.planned_actions,
+            structured_payload=structured_payload,
+            needs_confirmation=needs_confirmation,
+            confirmation_message=confirmation_message,
+            resolution_candidates=resolution_candidates,
+            execution_status=execution_status,
+            execution_summary=execution_summary,
+            cli_error_code=cli_error_code,
+            cua_error_code=cua_error_code,
+            handoff_error_code=handoff_error_code,
+            cua_should_trigger=cua_should_trigger,
+            execution_payload=execution_payload,
+            accepted_at=task.created_at,
+        )
+
+    async def _execute_command_background(self, *, payload: ExecuteCommandRequest, task: OrchestrationTask) -> None:
+        try:
+            await self.execute_command(payload, task=task)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("background orchestration task failed")
+            task.status = ExecutionStatus.FAILED
+            task.updated_at = datetime.now(UTC)
+            error_message = f"后台执行失败：{exc}"
+            self._record_step(
+                task,
+                "background_failed",
+                ExecutionStatus.FAILED,
+                error_message,
+                {"error": str(exc)},
+            )
+            task.executor_result = ExecutorResult(
+                executor=ExecutorType.NONE,
+                success=False,
+                status=ExecutionStatus.FAILED,
+                summary=error_message,
+                payload={"error": {"message": error_message}},
+                error_code=int(UnifiedErrorCode.EXECUTION_ERROR),
+            )
+            self._tasks[task.task_id] = task
+
+    def _handle_background_task_done(self, handle: asyncio.Task[None]) -> None:
+        self._background_tasks.discard(handle)
+        try:
+            handle.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("background orchestration task failed")
 
     @staticmethod
     def _extract_payload(parsed: IntentDecision) -> dict[str, object]:

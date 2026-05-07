@@ -49,10 +49,10 @@ export function buildTaskCards(viewState: ExecutionViewState | null): TaskCard[]
 	const status = detail?.status ?? response.execution_status ?? response.initial_status;
 	const result = detail?.executor_result;
 	const owner =
-		result?.executor === "cli" || response.selected_executor === "cli"
-			? "CLI"
-			: result?.executor === "cua" || response.selected_executor === "cua"
-				? "CUA"
+		result?.executor === "cua" || hasStepMatching(detail?.steps ?? [], /(^|_)cua_started$/)
+			? "CUA"
+			: result?.executor === "cli" || response.selected_executor === "cli"
+				? "CLI"
 				: "Agent";
 	const description = result?.summary || response.execution_summary || response.intent_reason || "任务已受理。";
 
@@ -168,7 +168,7 @@ export function buildDetailItems(viewState: ExecutionViewState | null): [string,
 		["执行摘要", result?.summary || response.execution_summary || "-"],
 		["CLI 错误码", stringifyNullable(result?.executor === "cli" ? result.error_code : response.cli_error_code)],
 		["CUA 错误码", stringifyNullable(result?.executor === "cua" ? result.error_code : response.cua_error_code)],
-		["CUA 接管", response.cua_should_trigger ? "是" : "否"],
+		["CUA 接管", response.cua_should_trigger || hasStepMatching(detail?.steps ?? [], /(^|_)cua_started$/) ? "是" : "否"],
 		["流状态", streamError || (streamConnected ? "已连接" : isTerminalExecutionStatus(detail?.status ?? response.execution_status) ? "已结束" : "未连接")],
 		["最新事件", lastEvent ? `${lastEvent.event} #${lastEvent.sequence}` : "-"],
 	];
@@ -233,6 +233,13 @@ export function mergeStreamEvent(
 		return event.detail;
 	}
 	if (!currentDetail || !event.step) {
+		if (currentDetail && event.event === "status") {
+			return {
+				...currentDetail,
+				status: event.status,
+				updated_at: event.emitted_at,
+			};
+		}
 		return currentDetail;
 	}
 	if (hasStep(currentDetail.steps, event.step)) {
@@ -393,6 +400,8 @@ function labelForStep(name: string): string {
 		structured_diagnosed: "模型诊断",
 		cua_started: "CUA 接管",
 		cua_finished: "CUA 结束",
+		needs_confirmation: "等待确认",
+		user_canceled: "用户取消",
 	};
 	if (labels[name]) {
 		return labels[name];

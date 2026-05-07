@@ -95,8 +95,8 @@ a:hover {
 
 .history-sidebar {
 	display: grid;
-	grid-template-rows: auto auto 1fr;
-	gap: 18px;
+	grid-template-rows: auto auto auto 1fr;
+	gap: 14px;
 	padding: 18px;
 	border-right: 1px solid var(--border);
 }
@@ -143,11 +143,14 @@ a:hover {
 
 .new-chat-button,
 .history-item,
+.history-item-main,
+.history-delete-button,
 .quick-command-row button,
 .composer-icon-button,
 .send-button,
 .secondary-button,
-.primary-button {
+.primary-button,
+.tiny-link-button {
 	border: 0;
 	transition:
 		transform 80ms ease,
@@ -158,21 +161,27 @@ a:hover {
 
 .new-chat-button:hover,
 .history-item:hover,
+.history-item-main:hover,
+.history-delete-button:hover,
 .quick-command-row button:hover,
 .composer-icon-button:hover,
 .send-button:hover,
 .secondary-button:hover,
-.primary-button:hover {
+.primary-button:hover,
+.tiny-link-button:hover {
 	transform: translateY(-1px);
 }
 
 .new-chat-button:active,
 .history-item:active,
+.history-item-main:active,
+.history-delete-button:active,
 .quick-command-row button:active,
 .composer-icon-button:active,
 .send-button:active,
 .secondary-button:active,
 .primary-button:active,
+.tiny-link-button:active,
 .candidate-card:active,
 .runtime-check-item:active,
 .trace-item:active,
@@ -182,11 +191,14 @@ a:hover {
 
 .new-chat-button:focus-visible,
 .history-item:focus-visible,
+.history-item-main:focus-visible,
+.history-delete-button:focus-visible,
 .quick-command-row button:focus-visible,
 .composer-icon-button:focus-visible,
 .send-button:focus-visible,
 .secondary-button:focus-visible,
 .primary-button:focus-visible,
+.tiny-link-button:focus-visible,
 .candidate-card:focus-within,
 .runtime-input input:focus,
 .runtime-input select:focus,
@@ -220,6 +232,55 @@ a:hover {
 	font-weight: 900;
 }
 
+.sidebar-live-status {
+	display: grid;
+	gap: 8px;
+	padding: 12px;
+	border: 1px solid var(--border);
+	border-left: 4px solid #94a3b8;
+	border-radius: 14px;
+	background: #ffffff;
+	box-shadow: var(--shadow-soft);
+}
+
+.sidebar-live-status--running {
+	border-left-color: var(--primary);
+	background: #f4f8ff;
+}
+
+.sidebar-live-status--success {
+	border-left-color: var(--success);
+}
+
+.sidebar-live-status--danger {
+	border-left-color: var(--danger);
+}
+
+.sidebar-live-status div {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.sidebar-live-status strong {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+}
+
+.sidebar-live-status p {
+	display: -webkit-box;
+	margin: 0;
+	overflow: hidden;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.45;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+}
+
 .history-section {
 	min-height: 0;
 	overflow: hidden;
@@ -242,10 +303,13 @@ a:hover {
 }
 
 .history-item {
+	position: relative;
 	display: grid;
-	gap: 5px;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 6px;
+	align-items: start;
 	width: 100%;
-	padding: 11px;
+	padding: 0;
 	border: 1px solid transparent;
 	border-radius: 12px;
 	color: inherit;
@@ -260,27 +324,56 @@ a:hover {
 	box-shadow: 0 8px 20px rgba(47, 107, 255, 0.08);
 }
 
-.history-item span,
-.history-item small,
-.history-item em {
+.history-item-main {
+	display: grid;
+	gap: 5px;
+	min-width: 0;
+	padding: 11px 4px 11px 11px;
+	color: inherit;
+	background: transparent;
+	text-align: left;
+}
+
+.history-delete-button {
+	display: inline-grid;
+	width: 28px;
+	height: 28px;
+	margin: 7px 7px 0 0;
+	place-items: center;
+	border-radius: 9px;
+	color: #7a8ba4;
+	background: transparent;
+	font-size: 18px;
+	font-weight: 850;
+	line-height: 1;
+}
+
+.history-delete-button:hover {
+	color: #991b1b;
+	background: #fee2e2;
+}
+
+.history-item-main span,
+.history-item-main small,
+.history-item-main em {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-.history-item span {
+.history-item-main span {
 	font-size: 14px;
 	font-weight: 850;
 }
 
-.history-item small {
+.history-item-main small {
 	color: var(--muted);
 	font-size: 12px;
 	line-height: 1.4;
 }
 
-.history-item em {
+.history-item-main em {
 	color: #7a8ba4;
 	font-size: 11px;
 	font-style: normal;
@@ -866,6 +959,31 @@ a:hover {
 	background: #dbeafe;
 	font-size: 12px;
 	font-weight: 850;
+}
+
+.lark-connection-actions {
+	display: flex;
+	flex: 0 0 auto;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 6px;
+}
+
+.tiny-link-button {
+	min-height: 26px;
+	padding: 5px 8px;
+	border-radius: 999px;
+	color: #1d4ed8;
+	background: #eef6ff;
+	font-size: 12px;
+	font-weight: 850;
+	white-space: nowrap;
+}
+
+.tiny-link-button:hover {
+	background: #dbeafe;
+	text-decoration: none;
 }
 
 .panel {

@@ -60,6 +60,8 @@ docs/
 cua/assets/
 src-cua
 backend/tests/results/
+cua_memory.json
+backend/cua_memory.json
 
 # OS
 .DS_Store

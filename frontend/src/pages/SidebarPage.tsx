@@ -14,6 +14,7 @@ import {
 	getLarkCliAccount,
 	getLarkCliAccountSetup,
 	getRuntimeCheck,
+	installLarkCli,
 	probeQwenModels,
 	startLarkCliAccountSetup,
 	updateRuntimeConfig,
@@ -45,6 +46,8 @@ import type {
 const SESSION_ID = "demo-session";
 const USER_ID = "demo-user";
 const DEFAULT_MESSAGE = "给梅家济发消息：“hello”";
+const historyStorageKey = "cua-lark.chat-history.v1";
+const maxSavedHistoryItems = 60;
 
 const quickCommands = [
 	"给梅家济发消息：“hello”",
@@ -84,6 +87,7 @@ export function SidebarPage() {
 	const [runtimeCheck, setRuntimeCheck] = useState<RuntimeCheckResponse | null>(null);
 	const [runtimeLoading, setRuntimeLoading] = useState(false);
 	const [runtimeSaving, setRuntimeSaving] = useState(false);
+	const [larkCliBusy, setLarkCliBusy] = useState(false);
 	const [larkAccountBusy, setLarkAccountBusy] = useState(false);
 	const [modelProbeBusy, setModelProbeBusy] = useState(false);
 	const [qwenModelProbe, setQwenModelProbe] = useState<QwenModelProbeResponse | null>(null);
@@ -92,7 +96,7 @@ export function SidebarPage() {
 	const [runtimeError, setRuntimeError] = useState("");
 	const [runtimeMessage, setRuntimeMessage] = useState("");
 	const [activeHistoryId, setActiveHistoryId] = useState("");
-	const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+	const [historyItems, setHistoryItems] = useState<HistoryItem[]>(() => readHistoryStorage());
 	const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
 	const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -105,9 +109,11 @@ export function SidebarPage() {
 		setDetail(nextDetail);
 	}, []);
 
+	const currentStatus = detail?.status ?? response?.execution_status ?? response?.initial_status ?? "queued";
+
 	const streamState = useExecutionStream({
 		taskId: response?.task_id ?? "",
-		enabled: Boolean(response),
+		enabled: Boolean(response) && !isTerminalExecutionStatus(currentStatus),
 		onEvent: handleStreamEvent,
 		onDetail: handleStreamDetail,
 	});
@@ -131,8 +137,19 @@ export function SidebarPage() {
 	const detailItems = useMemo<[string, string][]>(() => buildDetailItems(viewState), [viewState]);
 	const traceItems = useMemo(() => buildDebugTrace(viewState), [viewState]);
 	const issueSummary = useMemo(() => buildIssueSummary(viewState), [viewState]);
-	const currentStatus = detail?.status ?? response?.execution_status ?? response?.initial_status ?? "queued";
 	const canCancel = Boolean(response) && !isTerminalExecutionStatus(currentStatus);
+	const liveStatus = useMemo(
+		() =>
+			buildLiveStatus({
+				loading,
+				currentStatus,
+				response,
+				detail,
+				streamConnected: streamState.connected,
+				streamError: streamState.error,
+			}),
+		[currentStatus, detail, loading, response, streamState.connected, streamState.error],
+	);
 
 	const refreshRuntimeCheck = useCallback(async () => {
 		setRuntimeLoading(true);
@@ -175,6 +192,25 @@ export function SidebarPage() {
 			setRuntimeSaving(false);
 		}
 	}, []);
+
+	const downloadLarkCli = useCallback(async () => {
+		setLarkCliBusy(true);
+		setRuntimeError("");
+		setRuntimeMessage("");
+		try {
+			const result = await installLarkCli({
+				package_name: "@larksuite/cli",
+				registry_url: "",
+			});
+			setRuntimeCheck(result.detail);
+			setRuntimeMessage(result.message);
+			void refreshLarkAccount();
+		} catch (installError) {
+			setRuntimeError(installError instanceof Error ? installError.message : "lark-cli 下载失败");
+		} finally {
+			setLarkCliBusy(false);
+		}
+	}, [refreshLarkAccount]);
 
 	const probeModels = useCallback(async (payload: QwenModelProbePayload) => {
 		setModelProbeBusy(true);
@@ -275,8 +311,12 @@ export function SidebarPage() {
 	}, [activeHistoryId, currentStatus, detail, response]);
 
 	useEffect(() => {
+		writeHistoryStorage(historyItems.slice(0, maxSavedHistoryItems));
+	}, [historyItems]);
+
+	useEffect(() => {
 		chatEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-	}, [chatTurns.length, detail?.updated_at, lastEvent?.sequence, loading]);
+	}, [chatTurns.length]);
 
 	async function submitCommand(messageOverride = "", appendUserTurn = true) {
 		const nextMessage = (messageOverride || message).trim();
@@ -299,7 +339,7 @@ export function SidebarPage() {
 					updatedAt: now,
 					prompt: nextMessage,
 				},
-				...items.filter((item) => item.id !== nextHistoryId),
+				...items.filter((item) => item.id !== nextHistoryId).slice(0, maxSavedHistoryItems - 1),
 			]);
 		}
 		try {
@@ -413,6 +453,19 @@ export function SidebarPage() {
 		setChatTurns(rebuildTurns(item));
 	}
 
+	function deleteHistoryItem(itemId: string) {
+		setHistoryItems((items) => items.filter((item) => item.id !== itemId));
+		if (activeHistoryId !== itemId) {
+			return;
+		}
+		setActiveHistoryId("");
+		setResponse(null);
+		setDetail(null);
+		setLastEvent(null);
+		setError("");
+		setChatTurns([]);
+	}
+
 	return (
 		<main className="workspace-layout">
 			<aside className="history-sidebar" aria-label="历史消息">
@@ -427,21 +480,37 @@ export function SidebarPage() {
 					<span aria-hidden="true">+</span>
 					新建对话
 				</button>
+				<div className={`sidebar-live-status sidebar-live-status--${liveStatus.tone}`}>
+					<div>
+						<span className={`status-dot status-dot--${currentStatus}`} />
+						<strong>{liveStatus.title}</strong>
+					</div>
+					<p>{liveStatus.description}</p>
+				</div>
 				<div className="history-section">
 					<div className="sidebar-caption">历史消息</div>
 					<div className="history-list">
 						{historyItems.length === 0 ? <p className="empty-state">还没有历史消息。</p> : null}
 						{historyItems.map((item) => (
-							<button
-								type="button"
+							<div
 								className={`history-item ${activeHistoryId === item.id ? "history-item--active" : ""}`}
 								key={item.id}
-								onClick={() => openHistoryItem(item)}
 							>
-								<span>{item.title}</span>
-								<small>{item.description}</small>
-								<em>{item.status} · {item.updatedAt}</em>
-							</button>
+								<button type="button" className="history-item-main" onClick={() => openHistoryItem(item)}>
+									<span>{item.title}</span>
+									<small>{item.description}</small>
+									<em>{item.status} · {item.updatedAt}</em>
+								</button>
+								<button
+									type="button"
+									className="history-delete-button"
+									aria-label={`删除 ${item.title}`}
+									title="删除"
+									onClick={() => deleteHistoryItem(item.id)}
+								>
+									×
+								</button>
+							</div>
 						))}
 					</div>
 				</div>
@@ -536,6 +605,7 @@ export function SidebarPage() {
 					data={runtimeCheck}
 					loading={runtimeLoading}
 					saving={runtimeSaving}
+					cliBusy={larkCliBusy}
 					accountBusy={larkAccountBusy}
 					modelBusy={modelProbeBusy}
 					error={runtimeError}
@@ -546,6 +616,7 @@ export function SidebarPage() {
 					onRefresh={() => void refreshRuntimeCheck()}
 					onSave={(payload) => void saveRuntimeConfig(payload)}
 					onProbeModels={(payload) => void probeModels(payload)}
+					onInstallLarkCli={() => void downloadLarkCli()}
 					onRefreshAccount={() => void refreshLarkAccount()}
 					onStartAccountSetup={(payload) => void startAccountSetup(payload)}
 					onCancelAccountSetup={(jobId) => void cancelAccountSetup(jobId)}
@@ -686,6 +757,102 @@ function rebuildTurns(item: HistoryItem): ChatTurn[] {
 		});
 	}
 	return turns;
+}
+
+function buildLiveStatus({
+	loading,
+	currentStatus,
+	response,
+	detail,
+	streamConnected,
+	streamError,
+}: {
+	loading: boolean;
+	currentStatus: ExecutionStatus;
+	response: ExecuteCommandResponse | null;
+	detail: ExecutionDetailResponse | null;
+	streamConnected: boolean;
+	streamError: string;
+}): { title: string; description: string; tone: "idle" | "running" | "success" | "danger" } {
+	if (!response) {
+		return {
+			title: "空闲",
+			description: "还没有正在跟踪的任务。",
+			tone: "idle",
+		};
+	}
+	if (streamError) {
+		return {
+			title: "轮询兜底",
+			description: streamError,
+			tone: "danger",
+		};
+	}
+	const summary = detail?.executor_result?.summary || response.execution_summary || response.intent_reason || "任务状态同步中。";
+	if (currentStatus === "completed") {
+		return {
+			title: "已完成",
+			description: summary,
+			tone: "success",
+		};
+	}
+	if (currentStatus === "failed" || currentStatus === "cli_failed" || currentStatus === "canceled") {
+		return {
+			title: statusText(currentStatus),
+			description: summary,
+			tone: "danger",
+		};
+	}
+	return {
+		title: loading ? "提交中" : streamConnected ? "实时连接中" : statusText(currentStatus),
+		description: summary,
+		tone: "running",
+	};
+}
+
+function readHistoryStorage(): HistoryItem[] {
+	if (typeof window === "undefined") {
+		return [];
+	}
+	try {
+		const raw = window.localStorage.getItem(historyStorageKey);
+		if (!raw) {
+			return [];
+		}
+		const parsed = JSON.parse(raw) as unknown;
+		if (!Array.isArray(parsed)) {
+			return [];
+		}
+		return parsed.filter(isHistoryItem).slice(0, maxSavedHistoryItems);
+	} catch {
+		return [];
+	}
+}
+
+function writeHistoryStorage(items: HistoryItem[]) {
+	if (typeof window === "undefined") {
+		return;
+	}
+	try {
+		window.localStorage.setItem(historyStorageKey, JSON.stringify(items));
+	} catch {
+		// Local storage can be unavailable in restricted containers.
+	}
+}
+
+function isHistoryItem(value: unknown): value is HistoryItem {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+	const item = value as Partial<HistoryItem>;
+	return (
+		typeof item.id === "string" &&
+		typeof item.title === "string" &&
+		typeof item.description === "string" &&
+		typeof item.status === "string" &&
+		typeof item.updatedAt === "string" &&
+		typeof item.prompt === "string"
+	);
 }
 
 function makeId(prefix: string): string {

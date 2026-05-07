@@ -30,7 +30,7 @@ class ExecutionDetailResponse(BaseModel):
 class ExecutionStreamEvent(BaseModel):
     """One ordered SSE payload consumed by the React sidebar."""
 
-    event: Literal["snapshot", "step", "terminal", "error"]
+    event: Literal["snapshot", "step", "status", "heartbeat", "terminal", "error"]
     task_id: str
     status: ExecutionStatus
     sequence: int

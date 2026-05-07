@@ -52,6 +52,28 @@ class ExecutionStreamFormatter:
             emitted_at=datetime.now(UTC),
         )
 
+    def status_event(self, task: OrchestrationTask, sequence: int) -> ExecutionStreamEvent:
+        """Return a lightweight state-change event when status changes without a new step."""
+        return ExecutionStreamEvent(
+            event="status",
+            task_id=task.task_id,
+            status=task.status,
+            sequence=sequence,
+            summary=task.executor_result.summary if task.executor_result is not None else task.status.value,
+            emitted_at=datetime.now(UTC),
+        )
+
+    def heartbeat_event(self, task: OrchestrationTask, sequence: int) -> ExecutionStreamEvent:
+        """Return a keepalive event so long-running CUA tasks keep the browser stream open."""
+        return ExecutionStreamEvent(
+            event="heartbeat",
+            task_id=task.task_id,
+            status=task.status,
+            sequence=sequence,
+            summary="keepalive",
+            emitted_at=datetime.now(UTC),
+        )
+
     def terminal_event(self, task: OrchestrationTask, sequence: int) -> ExecutionStreamEvent:
         """Return the final event with a fresh detail snapshot."""
         detail = self.detail_from_task(task)

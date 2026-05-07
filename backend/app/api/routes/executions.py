@@ -61,6 +61,8 @@ async def stream_execution_detail(task_id: str, request: Request) -> StreamingRe
         sent_steps = 0
         sequence = 1
         snapshot_sent = False
+        last_status: ExecutionStatus | None = None
+        idle_ticks = 0
 
         while True:
             task = orchestrator_service.get_task(task_id)
@@ -70,8 +72,10 @@ async def stream_execution_detail(task_id: str, request: Request) -> StreamingRe
             if not snapshot_sent:
                 yield _format_sse_event(stream_formatter.snapshot_event(task=task, sequence=sequence))
                 snapshot_sent = True
+                last_status = task.status
                 sequence += 1
 
+            sent_any = False
             while sent_steps < len(task.steps):
                 step = task.steps[sent_steps]
                 yield _format_sse_event(
@@ -79,6 +83,13 @@ async def stream_execution_detail(task_id: str, request: Request) -> StreamingRe
                 )
                 sent_steps += 1
                 sequence += 1
+                sent_any = True
+
+            if last_status is not None and task.status != last_status:
+                yield _format_sse_event(stream_formatter.status_event(task=task, sequence=sequence))
+                last_status = task.status
+                sequence += 1
+                sent_any = True
 
             if stream_formatter.is_terminal(task.status):
                 yield _format_sse_event(stream_formatter.terminal_event(task=task, sequence=sequence))
@@ -86,6 +97,15 @@ async def stream_execution_detail(task_id: str, request: Request) -> StreamingRe
 
             if await request.is_disconnected():
                 break
+
+            if sent_any:
+                idle_ticks = 0
+            else:
+                idle_ticks += 1
+                if idle_ticks >= 10:
+                    yield _format_sse_event(stream_formatter.heartbeat_event(task=task, sequence=sequence))
+                    sequence += 1
+                    idle_ticks = 0
 
             await asyncio.sleep(0.5)
 
