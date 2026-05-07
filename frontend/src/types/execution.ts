@@ -111,7 +111,7 @@ export type ExecutionDetailResponse = {
 };
 
 export type ExecutionStreamEvent = {
-	event: "snapshot" | "step" | "terminal" | "error";
+	event: "snapshot" | "step" | "status" | "heartbeat" | "terminal" | "error";
 	task_id: string;
 	status: ExecutionStatus;
 	sequence: number;

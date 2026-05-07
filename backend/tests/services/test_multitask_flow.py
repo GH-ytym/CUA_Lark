@@ -6,6 +6,7 @@ import subprocess
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import ExecutorResult
 from app.schemas.chat import ExecuteCommandRequest
+from app.services.cli_failure_diagnosis_service import CliFailureDiagnosis
 from app.services.intent_service import IntentService
 from app.services.orchestrator import OrchestratorService
 from shared.error_codes import UnifiedErrorCode
@@ -357,6 +358,17 @@ def test_multitask_ambiguous_message_hands_off_to_cua() -> None:
 
     service.intent_service.recipient_resolver.resolve = fake_resolve  # type: ignore[method-assign]
     service.intent_service._chat_completion = fake_chat_completion  # type: ignore[method-assign]
+
+    async def fake_diagnose(*_: object, **__: object) -> CliFailureDiagnosis:
+        return CliFailureDiagnosis(
+            category="requires_ui_context",
+            should_fallback_to_cua=True,
+            confidence=0.92,
+            reason="ambiguous recipient requires current Feishu UI context",
+            user_message="模型判断需要当前飞书界面确认目标对象，准备切换到 CUA 接管。",
+        )
+
+    service.diagnosis_service.diagnose = fake_diagnose  # type: ignore[method-assign]
 
     def fake_cua_execute_fallback(*_: object, **__: object) -> ExecutorResult:
         return ExecutorResult(

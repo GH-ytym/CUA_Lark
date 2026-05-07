@@ -24,6 +24,7 @@ type RuntimeCheckPanelProps = {
 	onRefresh: () => void;
 	onSave: (payload: RuntimeConfigPayload) => void;
 	onProbeModels: (payload: QwenModelProbePayload) => void;
+	onInstallLarkCli: () => void;
 	onRefreshAccount: () => void;
 	onStartAccountSetup: (payload: LarkCliAccountSetupPayload) => void;
 	onCancelAccountSetup: (jobId: string) => void;
@@ -64,6 +65,7 @@ export function RuntimeCheckPanel({
 	onRefresh,
 	onSave,
 	onProbeModels,
+	onInstallLarkCli,
 	onRefreshAccount,
 	onStartAccountSetup,
 	onCancelAccountSetup,
@@ -246,7 +248,12 @@ export function RuntimeCheckPanel({
 						<h3>飞书连接</h3>
 						<p>{account?.authenticated ? `当前账号：${account.account_label || "已连接"}` : "未连接飞书账号"}</p>
 					</div>
-					<span>{account?.authenticated ? "已连接" : accountBusy ? "检测中" : "未连接"}</span>
+					<div className="lark-connection-actions">
+						<button type="button" className="tiny-link-button" disabled={cliBusy || loading} onClick={onInstallLarkCli}>
+							{cliBusy ? "下载中" : "下载 lark-cli"}
+						</button>
+						<span>{account?.authenticated ? "已连接" : accountBusy ? "检测中" : "未连接"}</span>
+					</div>
 				</div>
 
 				<div className="account-status-grid">

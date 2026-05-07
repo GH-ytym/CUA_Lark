@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import hashlib
 import json
+import logging
+from typing import Any
 
 from app.domain.enums import CapabilityId, ExecutionStatus, ExecutorType, IntentType
 from app.domain.models import ExecutorResult, OrchestrationTask, PlannedActionItem, StandardAction, TaskStep
 from app.schemas.chat import ExecuteCommandRequest, ExecuteCommandResponse
+from app.services.cli_failure_diagnosis_service import CliFailureDiagnosis, CliFailureDiagnosisService
 from app.services.cua_service import CuaService
 from app.services.intent_service import IntentDecision, IntentService
 from app.services.lark_cli_service import LarkCliService
 from app.services.retry_service import RetryService
-from shared.error_codes import cli_error_name, normalize_error_code
+from shared.error_codes import UnifiedErrorCode, cli_error_name, normalize_error_code
+
+
+logger = logging.getLogger(__name__)
 
 
 class OrchestratorService:
@@ -25,16 +32,19 @@ class OrchestratorService:
         cli_service: LarkCliService | None = None,
         cua_service: CuaService | None = None,
         retry_service: RetryService | None = None,
+        diagnosis_service: CliFailureDiagnosisService | None = None,
     ) -> None:
         self.intent_service = intent_service or IntentService()
         self.cli_service = cli_service or LarkCliService()
         self.cua_service = cua_service or CuaService()
         self.retry_service = retry_service or RetryService()
+        self.diagnosis_service = diagnosis_service or CliFailureDiagnosisService(intent_service=self.intent_service)
         self._tasks: dict[str, OrchestrationTask] = {}
         self._canceled_task_ids: set[str] = set()
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
-    async def execute_command(self, payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
-        """Create a task, parse it, optionally execute CLI, and return API ack."""
+    def submit_command(self, payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
+        """Create a task immediately and execute it in the background for SSE subscribers."""
         task = OrchestrationTask(
             session_id=payload.session_id,
             user_id=payload.user_id,
@@ -42,6 +52,43 @@ class OrchestratorService:
         )
         self._tasks[task.task_id] = task
         self._record_step(task, "task_created", ExecutionStatus.QUEUED, "task accepted")
+        handle = asyncio.create_task(self._execute_command_background(payload=payload, task=task))
+        self._background_tasks.add(handle)
+        handle.add_done_callback(self._handle_background_task_done)
+        return self._response_from_task(
+            task=task,
+            selected_executor=ExecutorType.NONE,
+            parsed_intent=IntentType.UNKNOWN,
+            intent_reason="任务已受理，正在后台执行。",
+            action_plan=[],
+            parse_source="pending",
+            structured_payload={},
+            needs_confirmation=False,
+            confirmation_message="",
+            resolution_candidates=[],
+            execution_status=ExecutionStatus.QUEUED,
+            execution_summary="任务已受理，状态将通过长连接持续更新。",
+            cli_error_code=None,
+            cua_error_code=None,
+            handoff_error_code=None,
+            cua_should_trigger=False,
+            execution_payload={},
+        )
+
+    async def execute_command(
+        self,
+        payload: ExecuteCommandRequest,
+        task: OrchestrationTask | None = None,
+    ) -> ExecuteCommandResponse:
+        """Create a task, parse it, optionally execute CLI, and return API ack."""
+        if task is None:
+            task = OrchestrationTask(
+                session_id=payload.session_id,
+                user_id=payload.user_id,
+                raw_message=payload.message,
+            )
+            self._tasks[task.task_id] = task
+            self._record_step(task, "task_created", ExecutionStatus.QUEUED, "task accepted")
 
         parsed = await self.intent_service.parse(message=payload.message, context_hint=payload.context_hint)
         structured_payload = self._extract_payload(parsed)
@@ -81,15 +128,80 @@ class OrchestratorService:
         cua_should_trigger = False
         any_cua_triggered = False
         execution_payload: dict[str, object] = {}
+        resolution_candidates: list[dict[str, object]] = []
         completed_count = 0
         plan_only_count = 0
         failed_count = 0
         handoff_error_code: int | None = None
+        selected_executor = parsed.selected_executor
 
         if parsed.intent_type == IntentType.UNKNOWN:
-            task.status = ExecutionStatus.FAILED
-            execution_status = ExecutionStatus.FAILED
-            execution_summary = "未找到可执行的标准动作。"
+            selected_executor = ExecutorType.CUA
+            handoff_error_code = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+            parse_fallback_action = self._parse_fallback_action(
+                raw_message=payload.message,
+                parsed_reason=parsed.reason,
+                parse_source=parsed.parse_source,
+                error_code=handoff_error_code,
+            )
+            item = task.planned_actions[0] if task.planned_actions else PlannedActionItem(order=1)
+            item.raw_message = item.raw_message or payload.message
+            item.standard_action = parse_fallback_action
+            item.status = "parse_fallback"
+            item.summary = "意图解析失败，切换到 CUA 接管原始任务。"
+            item.error_code = handoff_error_code
+            task.planned_actions = [item]
+            task.standard_action = parse_fallback_action
+            task.intent_type = IntentType.UNKNOWN
+            execution_payload = self._parse_fallback_payload(
+                action=parse_fallback_action,
+                raw_message=payload.message,
+                parsed_reason=parsed.reason,
+                parse_source=parsed.parse_source,
+                error_code=handoff_error_code,
+            )
+            item.execution_payload = execution_payload
+            self._record_step(
+                task,
+                "parse_fallback",
+                ExecutionStatus.CUA_RUNNING,
+                item.summary,
+                {
+                    "order": item.order,
+                    "error_code": handoff_error_code,
+                    "parse_source": parsed.parse_source,
+                    "reason": parsed.reason,
+                },
+            )
+            if self._is_cancel_requested(task.task_id):
+                task.status = ExecutionStatus.CANCELED
+                item.status = "canceled"
+                execution_status = ExecutionStatus.CANCELED
+                execution_summary = "task canceled before cua fallback"
+                self._record_step(task, "action_1_canceled", ExecutionStatus.CANCELED, execution_summary)
+            else:
+                cua_result = await asyncio.to_thread(
+                    self._execute_cua_fallback,
+                    task=task,
+                    item=item,
+                    action=parse_fallback_action,
+                    raw_message=payload.message,
+                    error_code=handoff_error_code,
+                    cli_payload=execution_payload,
+                    trigger_source="parse",
+                    diagnosis=None,
+                )
+                task.executor_result = cua_result
+                execution_status = cua_result.status
+                execution_summary = cua_result.summary
+                execution_payload = cua_result.payload
+                cua_error_code = cua_result.error_code
+                cua_should_trigger = True
+                any_cua_triggered = True
+                if cua_result.success:
+                    completed_count += 1
+                else:
+                    failed_count += 1
         else:
             for item in task.planned_actions:
                 if self._is_cancel_requested(task.task_id):
@@ -101,19 +213,98 @@ class OrchestratorService:
                     break
                 item_action = self._prepare_action_for_execution(task=task, item=item)
                 item.standard_action = item_action
+                if self._action_needs_confirmation(item_action):
+                    needs_confirmation = True
+                    task.needs_confirmation = True
+                    task.status = ExecutionStatus.QUEUED
+                    item.status = "needs_confirmation"
+                    item.needs_confirmation = True
+                    confirmation_message = self._confirmation_message(item_action)
+                    item.summary = confirmation_message
+                    item.execution_payload = {
+                        "mode": "needs_confirmation",
+                        "capability_id": item_action.capability_id.value,
+                        "payload": dict(item_action.payload),
+                    }
+                    resolution_candidates = self._resolution_candidates(item_action)
+                    execution_status = ExecutionStatus.QUEUED
+                    execution_summary = confirmation_message
+                    execution_payload = item.execution_payload
+                    self._record_step(
+                        task,
+                        "needs_confirmation" if len(task.planned_actions) == 1 else f"action_{item.order}_needs_confirmation",
+                        ExecutionStatus.QUEUED,
+                        confirmation_message,
+                        {
+                            "order": item.order,
+                            "resolution_candidates": resolution_candidates,
+                        },
+                    )
+                    break
                 if self._is_cli_command_implemented(item_action):
+                    item_action = self._ensure_cli_ready_action(item_action)
+                    item.standard_action = item_action
                     handoff_error_code = self._action_handoff_error_code(item_action)
                     if handoff_error_code is not None:
-                        cua_should_trigger = self._should_trigger_cua(
-                            handoff_error_code,
-                            execution_payload=self._build_handoff_payload(
-                                action=item_action,
-                                error_code=handoff_error_code,
-                            ),
+                        handoff_payload = self._build_handoff_payload(
+                            action=item_action,
+                            error_code=handoff_error_code,
+                        )
+                        handoff_result = ExecutorResult(
+                            executor=ExecutorType.CLI,
                             success=False,
+                            status=ExecutionStatus.CLI_FAILED,
+                            summary=item_action.handoff_reason or "structured handoff requested",
+                            payload=handoff_payload,
+                            error_code=handoff_error_code,
+                        )
+                        diagnosis = await self.diagnosis_service.diagnose(
+                            action=item_action,
+                            result=handoff_result,
+                            raw_message=item.raw_message or payload.message,
+                        )
+                        cua_should_trigger = (
+                            self._should_trigger_cua(
+                                handoff_error_code,
+                                execution_payload=handoff_payload,
+                                success=False,
+                            )
+                            and diagnosis.should_fallback_to_cua
+                        )
+                        handoff_payload = self._payload_with_cli_diagnosis(
+                            payload=handoff_payload,
+                            diagnosis=diagnosis,
+                            should_fallback_to_cua=cua_should_trigger,
+                        )
+                        self._record_diagnosis_step(
+                            task=task,
+                            item=item,
+                            diagnosis=diagnosis,
+                            should_fallback_to_cua=cua_should_trigger,
+                            structured=True,
                         )
                         any_cua_triggered = any_cua_triggered or cua_should_trigger
-                        if cua_should_trigger:
+                        if not cua_should_trigger:
+                            task.status = ExecutionStatus.FAILED
+                            item.status = "failed"
+                            item.summary = diagnosis.user_message
+                            item.error_code = handoff_error_code
+                            item.execution_payload = handoff_payload
+                            task.executor_result = ExecutorResult(
+                                executor=ExecutorType.CLI,
+                                success=False,
+                                status=ExecutionStatus.FAILED,
+                                summary=diagnosis.user_message,
+                                payload=handoff_payload,
+                                error_code=handoff_error_code,
+                            )
+                            execution_status = ExecutionStatus.FAILED
+                            execution_summary = diagnosis.user_message
+                            execution_payload = handoff_payload
+                            cli_error_code = handoff_error_code
+                            failed_count += 1
+                            break
+                        else:
                             if self._is_cancel_requested(task.task_id):
                                 task.status = ExecutionStatus.CANCELED
                                 item.status = "canceled"
@@ -126,17 +317,16 @@ class OrchestratorService:
                                     execution_summary,
                                 )
                                 break
-                            cua_result = self._execute_cua_fallback(
+                            cua_result = await asyncio.to_thread(
+                                self._execute_cua_fallback,
                                 task=task,
                                 item=item,
                                 action=item_action,
                                 raw_message=item.raw_message or payload.message,
                                 error_code=handoff_error_code,
-                                cli_payload=self._build_handoff_payload(
-                                    action=item_action,
-                                    error_code=handoff_error_code,
-                                ),
+                                cli_payload=handoff_payload,
                                 trigger_source="structured",
+                                diagnosis=diagnosis,
                             )
                             task.executor_result = cua_result
                             execution_status = cua_result.status
@@ -160,27 +350,55 @@ class OrchestratorService:
                         item_action.capability_id.value,
                         {"order": item.order, "raw_message": item.raw_message},
                     )
-                    result = self.retry_service.run(
+                    result = await asyncio.to_thread(
+                        self.retry_service.run,
                         lambda: self.cli_service.execute_action(action=item_action, dry_run=False),
                         is_success=lambda item_result: item_result.success,
                         error_code=lambda item_result: item_result.error_code,
                     )
+                    cli_error_code = result.error_code
+                    diagnosis: CliFailureDiagnosis | None = None
+                    cua_should_trigger = False
+                    execution_payload = result.payload
+                    if result.success:
+                        cua_should_trigger = False
+                    else:
+                        diagnosis = await self.diagnosis_service.diagnose(
+                            action=item_action,
+                            result=result,
+                            raw_message=item.raw_message or payload.message,
+                        )
+                        cua_should_trigger = (
+                            self._should_trigger_cua(
+                                cli_error_code,
+                                execution_payload=result.payload,
+                                success=result.success,
+                            )
+                            and diagnosis.should_fallback_to_cua
+                        )
+                        execution_payload = self._payload_with_cli_diagnosis(
+                            payload=result.payload,
+                            diagnosis=diagnosis,
+                            should_fallback_to_cua=cua_should_trigger,
+                        )
+                        summary = result.summary if cua_should_trigger else diagnosis.user_message
+                        status = result.status if cua_should_trigger else ExecutionStatus.FAILED
+                        result = result.model_copy(
+                            update={
+                                "status": status,
+                                "summary": summary,
+                                "payload": execution_payload,
+                            }
+                        )
                     task.executor_result = result
                     item.summary = result.summary
                     item.error_code = result.error_code
-                    item.execution_payload = result.payload
+                    item.execution_payload = execution_payload
                     execution_status = result.status
                     execution_summary = result.summary
-                    execution_payload = result.payload
-                    cli_error_code = result.error_code
-                    cua_should_trigger = self._should_trigger_cua(
-                        cli_error_code,
-                        execution_payload=execution_payload,
-                        success=result.success,
-                    )
                     any_cua_triggered = any_cua_triggered or cua_should_trigger
                     task.status = result.status
-                    item.status = "completed" if result.success else "cli_failed"
+                    item.status = "completed" if result.success else "cli_failed" if cua_should_trigger else "failed"
                     cli_finished_name = "cli_finished" if len(task.planned_actions) == 1 else f"action_{item.order}_cli_finished"
                     self._record_step(
                         task,
@@ -191,8 +409,17 @@ class OrchestratorService:
                             "order": item.order,
                             "error_code": cli_error_code,
                             "cua_should_trigger": cua_should_trigger,
+                            "diagnosis": diagnosis.model_dump() if diagnosis is not None else {},
                         },
                     )
+                    if diagnosis is not None:
+                        self._record_diagnosis_step(
+                            task=task,
+                            item=item,
+                            diagnosis=diagnosis,
+                            should_fallback_to_cua=cua_should_trigger,
+                            structured=False,
+                        )
                     if self._is_cancel_requested(task.task_id):
                         task.status = ExecutionStatus.CANCELED
                         item.status = "canceled"
@@ -218,7 +445,8 @@ class OrchestratorService:
                                 execution_summary,
                             )
                             break
-                        cua_result = self._execute_cua_fallback(
+                        cua_result = await asyncio.to_thread(
+                            self._execute_cua_fallback,
                             task=task,
                             item=item,
                             action=item_action,
@@ -226,6 +454,7 @@ class OrchestratorService:
                             error_code=cli_error_code,
                             cli_payload=execution_payload,
                             trigger_source="cli",
+                            diagnosis=diagnosis,
                         )
                         task.executor_result = cua_result
                         execution_status = cua_result.status
@@ -310,21 +539,24 @@ class OrchestratorService:
 
         task.updated_at = datetime.now(UTC)
         self._tasks[task.task_id] = task
+        response_action = task.planned_actions[0].standard_action if task.planned_actions else response_action
+        task.standard_action = response_action
+        response_payload = self._response_payload_for_items(
+            planned_actions=task.planned_actions,
+            fallback_payload=response_payload,
+        )
 
-        return ExecuteCommandResponse(
-            task_id=task.task_id,
-            initial_status=ExecutionStatus.QUEUED,
-            selected_executor=parsed.selected_executor,
+        return self._response_from_task(
+            task=task,
+            selected_executor=selected_executor,
             parsed_intent=parsed.intent_type,
             intent_reason=parsed.reason,
             action_plan=parsed.action_plan,
             parse_source=parsed.parse_source,
-            standard_action=response_action,
-            planned_actions=task.planned_actions,
             structured_payload=response_payload,
-            needs_confirmation=False,
+            needs_confirmation=needs_confirmation,
             confirmation_message=confirmation_message,
-            resolution_candidates=[],
+            resolution_candidates=resolution_candidates,
             execution_status=execution_status,
             execution_summary=execution_summary,
             cli_error_code=cli_error_code,
@@ -332,7 +564,6 @@ class OrchestratorService:
             handoff_error_code=handoff_error_code,
             cua_should_trigger=any_cua_triggered,
             execution_payload=execution_payload,
-            accepted_at=task.created_at,
         )
 
     def get_task(self, task_id: str) -> OrchestrationTask | None:
@@ -360,6 +591,87 @@ class OrchestratorService:
             "用户在前端请求取消任务。",
         )
         return task
+
+    @staticmethod
+    def _response_from_task(
+        *,
+        task: OrchestrationTask,
+        selected_executor: ExecutorType,
+        parsed_intent: IntentType,
+        intent_reason: str,
+        action_plan: list[str],
+        parse_source: str,
+        structured_payload: dict[str, object],
+        needs_confirmation: bool,
+        confirmation_message: str,
+        resolution_candidates: list[dict[str, object]],
+        execution_status: ExecutionStatus,
+        execution_summary: str,
+        cli_error_code: int | None,
+        cua_error_code: int | None,
+        handoff_error_code: int | None,
+        cua_should_trigger: bool,
+        execution_payload: dict[str, object],
+    ) -> ExecuteCommandResponse:
+        return ExecuteCommandResponse(
+            task_id=task.task_id,
+            initial_status=ExecutionStatus.QUEUED,
+            selected_executor=selected_executor,
+            parsed_intent=parsed_intent,
+            intent_reason=intent_reason,
+            action_plan=action_plan,
+            parse_source=parse_source,
+            standard_action=task.standard_action,
+            planned_actions=task.planned_actions,
+            structured_payload=structured_payload,
+            needs_confirmation=needs_confirmation,
+            confirmation_message=confirmation_message,
+            resolution_candidates=resolution_candidates,
+            execution_status=execution_status,
+            execution_summary=execution_summary,
+            cli_error_code=cli_error_code,
+            cua_error_code=cua_error_code,
+            handoff_error_code=handoff_error_code,
+            cua_should_trigger=cua_should_trigger,
+            execution_payload=execution_payload,
+            accepted_at=task.created_at,
+        )
+
+    async def _execute_command_background(self, *, payload: ExecuteCommandRequest, task: OrchestrationTask) -> None:
+        try:
+            await self.execute_command(payload, task=task)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("background orchestration task failed")
+            task.status = ExecutionStatus.FAILED
+            task.updated_at = datetime.now(UTC)
+            error_message = f"后台执行失败：{exc}"
+            self._record_step(
+                task,
+                "background_failed",
+                ExecutionStatus.FAILED,
+                error_message,
+                {"error": str(exc)},
+            )
+            task.executor_result = ExecutorResult(
+                executor=ExecutorType.NONE,
+                success=False,
+                status=ExecutionStatus.FAILED,
+                summary=error_message,
+                payload={"error": {"message": error_message}},
+                error_code=int(UnifiedErrorCode.EXECUTION_ERROR),
+            )
+            self._tasks[task.task_id] = task
+
+    def _handle_background_task_done(self, handle: asyncio.Task[None]) -> None:
+        self._background_tasks.discard(handle)
+        try:
+            handle.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("background orchestration task failed")
 
     @staticmethod
     def _extract_payload(parsed: IntentDecision) -> dict[str, object]:
@@ -470,6 +782,36 @@ class OrchestratorService:
             return normalized_code is not None and int(normalized_code) != 0
         return True
 
+    @staticmethod
+    def _action_needs_confirmation(action: StandardAction) -> bool:
+        return str(action.payload.get("resolution_status", "")).strip() == "needs_confirmation"
+
+    @staticmethod
+    def _confirmation_message(action: StandardAction) -> str:
+        hint = str(action.payload.get("chat_hint", "")).strip()
+        if hint:
+            return f"需要确认发送对象：{hint}"
+        return "需要确认发送对象后再执行。"
+
+    @staticmethod
+    def _resolution_candidates(action: StandardAction) -> list[dict[str, object]]:
+        raw_candidates = action.payload.get("resolution_candidates")
+        if not isinstance(raw_candidates, list):
+            return []
+        candidates: list[dict[str, object]] = []
+        for item in raw_candidates:
+            if not isinstance(item, dict):
+                continue
+            candidates.append(
+                {
+                    "name": str(item.get("name", "")).strip(),
+                    "entity_type": str(item.get("entity_type", "")).strip(),
+                    "entity_id": str(item.get("entity_id", "")).strip(),
+                    "score": float(item.get("score", 0) or 0),
+                }
+            )
+        return [item for item in candidates if item["name"] and item["entity_id"]]
+
     def _execute_cua_fallback(
         self,
         *,
@@ -480,17 +822,31 @@ class OrchestratorService:
         error_code: int | None,
         cli_payload: dict[str, object],
         trigger_source: str = "cli",
+        diagnosis: CliFailureDiagnosis | None = None,
     ) -> ExecutorResult:
         task.status = ExecutionStatus.CUA_RUNNING
         item.status = "cua_running"
         task.updated_at = datetime.now(UTC)
         cua_started_name = "cua_started" if len(task.planned_actions) == 1 else f"action_{item.order}_cua_started"
+        diagnosis_payload = diagnosis.model_dump() if diagnosis is not None else {}
+        summary = (
+            diagnosis.user_message
+            if diagnosis is not None
+            else "意图解析失败，切换到 CUA 接管原始任务。"
+            if trigger_source == "parse"
+            else "standard error code produced, switching to cua fallback"
+        )
         self._record_step(
             task,
             cua_started_name,
             ExecutionStatus.CUA_RUNNING,
-            "standard error code produced, switching to cua fallback",
-            {"order": item.order, "error_code": error_code},
+            summary,
+            {
+                "order": item.order,
+                "error_code": error_code,
+                "diagnosis": diagnosis_payload,
+                "cua_handoff_message": summary,
+            },
         )
         cua_result = self.cua_service.execute_fallback(
             action=action,
@@ -503,6 +859,16 @@ class OrchestratorService:
             retry_attempts=max(1, int(self.retry_service.policy.max_attempts)),
             trigger_source=trigger_source,
         )
+        if diagnosis is not None:
+            cua_result = cua_result.model_copy(
+                update={
+                    "payload": self._payload_with_cli_diagnosis(
+                        payload=cua_result.payload,
+                        diagnosis=diagnosis,
+                        should_fallback_to_cua=True,
+                    ),
+                }
+            )
         item.summary = cua_result.summary
         item.error_code = cua_result.error_code
         item.execution_payload = cua_result.payload
@@ -520,12 +886,54 @@ class OrchestratorService:
         return cua_result
 
     @staticmethod
+    def _payload_with_cli_diagnosis(
+        *,
+        payload: dict[str, object],
+        diagnosis: CliFailureDiagnosis,
+        should_fallback_to_cua: bool,
+    ) -> dict[str, object]:
+        next_payload = dict(payload)
+        diagnosis_payload = diagnosis.model_dump()
+        diagnosis_payload["should_fallback_to_cua"] = should_fallback_to_cua
+        next_payload["cli_failure_diagnosis"] = diagnosis_payload
+        next_payload["cua_handoff_message"] = (
+            diagnosis.user_message if should_fallback_to_cua else "模型诊断后判定暂不接管 CUA。"
+        )
+        return next_payload
+
+    def _record_diagnosis_step(
+        self,
+        *,
+        task: OrchestrationTask,
+        item: PlannedActionItem,
+        diagnosis: CliFailureDiagnosis,
+        should_fallback_to_cua: bool,
+        structured: bool,
+    ) -> None:
+        name_suffix = "structured_diagnosed" if structured else "cli_diagnosed"
+        step_name = name_suffix if len(task.planned_actions) == 1 else f"action_{item.order}_{name_suffix}"
+        self._record_step(
+            task,
+            step_name,
+            ExecutionStatus.CLI_FAILED if should_fallback_to_cua else ExecutionStatus.FAILED,
+            diagnosis.user_message,
+            {
+                "order": item.order,
+                "should_fallback_to_cua": should_fallback_to_cua,
+                "diagnosis": diagnosis.model_dump(),
+            },
+        )
+
+    @staticmethod
     def _action_handoff_error_code(action: StandardAction) -> int | None:
         code = normalize_error_code(action.handoff_error_code)
+        if code is None:
+            code = normalize_error_code(action.payload.get("handoff_error_code"))
         return int(code) if code is not None and int(code) != 0 else None
 
     @staticmethod
     def _build_handoff_payload(action: StandardAction, error_code: int) -> dict[str, object]:
+        handoff_reason = str(action.handoff_reason or action.payload.get("handoff_reason", "")).strip()
         return {
             "mode": "structured_handoff",
             "capability_id": action.capability_id.value,
@@ -533,7 +941,54 @@ class OrchestratorService:
             "error": {
                 "code": error_code,
                 "name": cli_error_name(error_code),
-                "message": action.handoff_reason or "structured handoff requested",
+                "message": handoff_reason or "structured handoff requested",
+            },
+        }
+
+    @staticmethod
+    def _parse_fallback_action(
+        *,
+        raw_message: str,
+        parsed_reason: str,
+        parse_source: str,
+        error_code: int,
+    ) -> StandardAction:
+        return StandardAction(
+            capability_id=CapabilityId.UNKNOWN,
+            payload={
+                "mode": "parse_fallback",
+                "raw_message": raw_message,
+                "parse_source": parse_source,
+                "parse_reason": parsed_reason,
+                "handoff_error_code": error_code,
+                "handoff_reason": "intent parse failed; hand off raw natural-language task to CUA",
+            },
+            executor_hint=ExecutorType.CUA,
+            intent_type=IntentType.UNKNOWN,
+            handoff_error_code=error_code,
+            handoff_reason="intent parse failed; hand off raw natural-language task to CUA",
+        )
+
+    @staticmethod
+    def _parse_fallback_payload(
+        *,
+        action: StandardAction,
+        raw_message: str,
+        parsed_reason: str,
+        parse_source: str,
+        error_code: int,
+    ) -> dict[str, object]:
+        return {
+            "mode": "parse_fallback",
+            "capability_id": action.capability_id.value,
+            "payload": dict(action.payload),
+            "raw_message": raw_message,
+            "parse_source": parse_source,
+            "parse_reason": parsed_reason,
+            "error": {
+                "code": error_code,
+                "name": cli_error_name(error_code),
+                "message": "intent parse failed; switching to CUA fallback",
             },
         }
 
@@ -552,6 +1007,41 @@ class OrchestratorService:
             payload=payload,
         )
         return action.model_copy(update={"payload": payload})
+
+    @staticmethod
+    def _ensure_cli_ready_action(action: StandardAction) -> StandardAction:
+        if action.capability_id != CapabilityId.IM_MESSAGE_SEND:
+            return action
+        payload = dict(action.payload)
+        chat_id = str(payload.get("chat_id", "")).strip()
+        user_id = str(payload.get("user_id", "")).strip()
+        if chat_id or user_id:
+            return action
+        hint = str(payload.get("chat_hint", "")).strip()
+        if hint:
+            payload["resolution_status"] = "handoff_required"
+            payload["resolution_reason"] = "message_target_unresolved"
+            payload["handoff_error_code"] = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+            payload.setdefault("handoff_reason", "recipient target is unresolved before CLI execution")
+            handoff_code = OrchestratorService._action_handoff_error_code(action.model_copy(update={"payload": payload}))
+            return action.model_copy(
+                update={
+                    "payload": payload,
+                    "handoff_error_code": handoff_code,
+                    "handoff_reason": str(payload.get("handoff_reason", "")).strip(),
+                }
+            )
+        payload["handoff_error_code"] = int(UnifiedErrorCode.INVALID_INPUT_OR_RESULT)
+        payload["resolution_status"] = "missing_required_field"
+        payload["resolution_reason"] = "missing_message_target"
+        payload.setdefault("handoff_reason", "message recipient is missing")
+        return action.model_copy(
+            update={
+                "payload": payload,
+                "handoff_error_code": OrchestratorService._action_handoff_error_code(action.model_copy(update={"payload": payload})),
+                "handoff_reason": str(payload.get("handoff_reason", "")).strip(),
+            }
+        )
 
     @staticmethod
     def _requires_idempotency_key(action: StandardAction) -> bool:

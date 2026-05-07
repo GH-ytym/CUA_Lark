@@ -98,5 +98,5 @@ async def get_cua_boundary() -> CuaBoundaryResponse:
 
 @router.post("/execute", response_model=ExecuteCommandResponse)
 async def execute_command(payload: ExecuteCommandRequest) -> ExecuteCommandResponse:
-    """Accept one command and return task acceptance payload."""
-    return await orchestrator_service.execute_command(payload)
+    """Accept one command and return immediately while execution streams over SSE."""
+    return orchestrator_service.submit_command(payload)
