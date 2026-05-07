@@ -192,7 +192,7 @@ class CuaService:
     @staticmethod
     def _normalize_trigger_source(source: str) -> str:
         normalized = str(source).strip().lower()
-        return normalized if normalized in {"cli", "structured"} else "cli"
+        return normalized if normalized in {"cli", "structured", "parse"} else "cli"
 
     @staticmethod
     def _empty_memory_payload(request_payload: dict[str, object]) -> dict[str, object]:

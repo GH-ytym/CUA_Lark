@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DebugTracePanel } from "../components/status/DebugTracePanel";
-import { ErrorState } from "../components/status/ErrorState";
-import { ResultDetail } from "../components/status/ResultDetail";
 import { RuntimeCheckPanel } from "../components/status/RuntimeCheckPanel";
-import { StatusTimeline } from "../components/status/StatusTimeline";
 import { useExecutionStream } from "../features/execution/useExecutionStream";
 import {
 	cancelExecution,
@@ -22,7 +19,6 @@ import {
 import {
 	buildDebugTrace,
 	buildDetailItems,
-	buildIssueSummary,
 	buildTaskCards,
 	buildTimelineSteps,
 	isTerminalExecutionStatus,
@@ -46,21 +42,14 @@ import type {
 const SESSION_ID = "demo-session";
 const USER_ID = "demo-user";
 const DEFAULT_MESSAGE = "给梅家济发消息：“hello”";
-const historyStorageKey = "cua-lark.chat-history.v1";
 const maxSavedHistoryItems = 60;
-
-const quickCommands = [
-	"给梅家济发消息：“hello”",
-	"给项目群发今晚发布窗口提醒",
-	"创建明天 10:00 的飞书会议并邀请项目组",
-	"把今天的联调结论整理成飞书文档",
-];
 
 type ChatTurn = {
 	id: string;
 	role: "user" | "assistant";
 	content: string;
 	createdAt: string;
+	historyId?: string;
 	taskId?: string;
 };
 
@@ -95,10 +84,13 @@ export function SidebarPage() {
 	const [larkSetupJob, setLarkSetupJob] = useState<LarkCliAccountSetupJob | null>(null);
 	const [runtimeError, setRuntimeError] = useState("");
 	const [runtimeMessage, setRuntimeMessage] = useState("");
+	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [activeHistoryId, setActiveHistoryId] = useState("");
-	const [historyItems, setHistoryItems] = useState<HistoryItem[]>(() => readHistoryStorage());
+	const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+	const [expandedHistoryIds, setExpandedHistoryIds] = useState<string[]>([]);
 	const [chatTurns, setChatTurns] = useState<ChatTurn[]>([]);
 	const chatEndRef = useRef<HTMLDivElement | null>(null);
+	const chatTurnRefs = useRef<Record<string, HTMLElement | null>>({});
 
 	const handleStreamEvent = useCallback((event: ExecutionStreamEvent) => {
 		setLastEvent(event);
@@ -136,21 +128,7 @@ export function SidebarPage() {
 	const timelineSteps = useMemo(() => buildTimelineSteps(viewState), [viewState]);
 	const detailItems = useMemo<[string, string][]>(() => buildDetailItems(viewState), [viewState]);
 	const traceItems = useMemo(() => buildDebugTrace(viewState), [viewState]);
-	const issueSummary = useMemo(() => buildIssueSummary(viewState), [viewState]);
 	const canCancel = Boolean(response) && !isTerminalExecutionStatus(currentStatus);
-	const liveStatus = useMemo(
-		() =>
-			buildLiveStatus({
-				loading,
-				currentStatus,
-				response,
-				detail,
-				streamConnected: streamState.connected,
-				streamError: streamState.error,
-			}),
-		[currentStatus, detail, loading, response, streamState.connected, streamState.error],
-	);
-
 	const refreshRuntimeCheck = useCallback(async () => {
 		setRuntimeLoading(true);
 		setRuntimeError("");
@@ -290,29 +268,35 @@ export function SidebarPage() {
 		if (!response || !activeHistoryId) {
 			return;
 		}
+		const responseTaskId = response.task_id;
+		const updatedAt = formatClock(new Date());
+		const description =
+			detail?.executor_result?.summary ||
+			response.execution_summary ||
+			response.intent_reason ||
+			"";
 		setHistoryItems((items) =>
 			items.map((item) =>
-				item.id === activeHistoryId
+				item.response?.task_id === responseTaskId || (!item.response && item.id === activeHistoryId)
 					? {
 							...item,
 							response,
 							detail,
 							status: statusText(currentStatus),
-							description:
-								detail?.executor_result?.summary ||
-								response.execution_summary ||
-								response.intent_reason ||
-								item.description,
-							updatedAt: formatClock(new Date()),
+							description: description || item.description,
+							updatedAt,
 						}
 					: item,
 			),
 		);
+		setChatTurns((turns) =>
+			turns.map((turn) =>
+				turn.role === "assistant" && turn.taskId === responseTaskId
+					? { ...turn, content: persistedAssistantContent(currentStatus, response, detail) }
+					: turn,
+			),
+		);
 	}, [activeHistoryId, currentStatus, detail, response]);
-
-	useEffect(() => {
-		writeHistoryStorage(historyItems.slice(0, maxSavedHistoryItems));
-	}, [historyItems]);
 
 	useEffect(() => {
 		chatEndRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
@@ -329,7 +313,10 @@ export function SidebarPage() {
 		setError("");
 		if (appendUserTurn) {
 			setActiveHistoryId(nextHistoryId);
-			appendTurn({ role: "user", content: nextMessage, createdAt: now });
+			setResponse(null);
+			setDetail(null);
+			setLastEvent(null);
+			appendTurn({ role: "user", content: nextMessage, createdAt: now, historyId: nextHistoryId });
 			setHistoryItems((items) => [
 				{
 					id: nextHistoryId,
@@ -341,6 +328,7 @@ export function SidebarPage() {
 				},
 				...items.filter((item) => item.id !== nextHistoryId).slice(0, maxSavedHistoryItems - 1),
 			]);
+			setExpandedHistoryIds((ids) => [nextHistoryId, ...ids.filter((id) => id !== nextHistoryId)].slice(0, 12));
 		}
 		try {
 			const result = await executeAgentCommand({
@@ -355,6 +343,7 @@ export function SidebarPage() {
 				role: "assistant",
 				content: result.execution_summary || result.intent_reason || "任务已受理，正在跟踪执行状态。",
 				createdAt: formatClock(new Date()),
+				historyId: nextHistoryId,
 				taskId: result.task_id,
 			});
 			setHistoryItems((items) =>
@@ -377,6 +366,7 @@ export function SidebarPage() {
 				role: "assistant",
 				content: nextError,
 				createdAt: formatClock(new Date()),
+				historyId: nextHistoryId,
 			});
 			setHistoryItems((items) =>
 				items.map((item) =>
@@ -431,44 +421,26 @@ export function SidebarPage() {
 		setChatTurns((current) => [...current, { ...turn, id: makeId(turn.role) }]);
 	}
 
-	function startNewChat() {
-		const id = makeId("draft");
-		setActiveHistoryId(id);
-		setResponse(null);
-		setDetail(null);
-		setLastEvent(null);
-		setError("");
-		setTraceQuery("");
-		setMessage("");
-		setChatTurns([]);
-	}
-
 	function openHistoryItem(item: HistoryItem) {
 		setActiveHistoryId(item.id);
+		setExpandedHistoryIds((ids) =>
+			activeHistoryId === item.id && ids.includes(item.id)
+				? ids.filter((id) => id !== item.id)
+				: [item.id, ...ids.filter((id) => id !== item.id)],
+		);
 		setMessage(item.prompt);
 		setError("");
 		setResponse(item.response ?? null);
 		setDetail(item.detail ?? null);
 		setLastEvent(null);
-		setChatTurns(rebuildTurns(item));
-	}
-
-	function deleteHistoryItem(itemId: string) {
-		setHistoryItems((items) => items.filter((item) => item.id !== itemId));
-		if (activeHistoryId !== itemId) {
-			return;
-		}
-		setActiveHistoryId("");
-		setResponse(null);
-		setDetail(null);
-		setLastEvent(null);
-		setError("");
-		setChatTurns([]);
+		window.requestAnimationFrame(() => {
+			chatTurnRefs.current[item.id]?.scrollIntoView({ block: "center", behavior: "smooth" });
+		});
 	}
 
 	return (
-		<main className="workspace-layout">
-			<aside className="history-sidebar" aria-label="历史消息">
+		<main className={`workspace-layout ${settingsOpen ? "workspace-layout--settings-open" : ""}`}>
+			<aside className="history-sidebar" aria-label="消息记录">
 				<div className="brand-block">
 					<div className="brand-mark">FS</div>
 					<div>
@@ -476,41 +448,21 @@ export function SidebarPage() {
 						<span>飞书智能执行体</span>
 					</div>
 				</div>
-				<button type="button" className="new-chat-button" onClick={startNewChat}>
-					<span aria-hidden="true">+</span>
-					新建对话
-				</button>
-				<div className={`sidebar-live-status sidebar-live-status--${liveStatus.tone}`}>
-					<div>
-						<span className={`status-dot status-dot--${currentStatus}`} />
-						<strong>{liveStatus.title}</strong>
-					</div>
-					<p>{liveStatus.description}</p>
-				</div>
 				<div className="history-section">
-					<div className="sidebar-caption">历史消息</div>
+					<div className="history-tree-header">
+						<span>消息记录</span>
+						<small>{historyItems.length} 条</small>
+					</div>
 					<div className="history-list">
-						{historyItems.length === 0 ? <p className="empty-state">还没有历史消息。</p> : null}
+						{historyItems.length === 0 ? <p className="empty-state">还没有消息记录。</p> : null}
 						{historyItems.map((item) => (
-							<div
-								className={`history-item ${activeHistoryId === item.id ? "history-item--active" : ""}`}
+							<HistoryTreeItem
 								key={item.id}
-							>
-								<button type="button" className="history-item-main" onClick={() => openHistoryItem(item)}>
-									<span>{item.title}</span>
-									<small>{item.description}</small>
-									<em>{item.status} · {item.updatedAt}</em>
-								</button>
-								<button
-									type="button"
-									className="history-delete-button"
-									aria-label={`删除 ${item.title}`}
-									title="删除"
-									onClick={() => deleteHistoryItem(item.id)}
-								>
-									×
-								</button>
-							</div>
+								item={item}
+								active={activeHistoryId === item.id}
+								expanded={expandedHistoryIds.includes(item.id)}
+								onOpen={() => openHistoryItem(item)}
+							/>
 						))}
 					</div>
 				</div>
@@ -525,13 +477,13 @@ export function SidebarPage() {
 							key={turn.id}
 							turn={turn}
 							isLiveTask={Boolean(turn.taskId && response?.task_id === turn.taskId)}
+							isActive={Boolean(turn.historyId && turn.historyId === activeHistoryId)}
 							response={response}
 							currentStatus={currentStatus}
 							timelineSteps={timelineSteps}
 							detailItems={detailItems}
 							traceItems={traceItems}
 							traceQuery={traceQuery}
-							issueSummary={issueSummary}
 							error={error}
 							tasks={tasks}
 							canCancel={canCancel}
@@ -540,6 +492,11 @@ export function SidebarPage() {
 							onRefresh={() => void refreshDetail()}
 							onRetry={() => void retryCurrentCommand()}
 							onCancel={() => void cancelCurrentTask()}
+							turnRef={(node) => {
+								if (turn.historyId && turn.role === "user") {
+									chatTurnRefs.current[turn.historyId] = node;
+								}
+							}}
 						/>
 					))}
 
@@ -565,13 +522,6 @@ export function SidebarPage() {
 						void submitCommand();
 					}}
 				>
-					<div className="quick-command-row" aria-label="快捷指令">
-						{quickCommands.map((command) => (
-							<button type="button" key={command} onClick={() => setMessage(command)} disabled={loading}>
-								{command}
-							</button>
-						))}
-					</div>
 					<div className="composer-box">
 						<button type="button" className="composer-icon-button" onClick={() => setMessage("")} disabled={loading}>
 							清空
@@ -600,27 +550,38 @@ export function SidebarPage() {
 				</form>
 			</section>
 
-			<aside className="settings-sidebar" aria-label="环境配置">
-				<RuntimeCheckPanel
-					data={runtimeCheck}
-					loading={runtimeLoading}
-					saving={runtimeSaving}
-					cliBusy={larkCliBusy}
-					accountBusy={larkAccountBusy}
-					modelBusy={modelProbeBusy}
-					error={runtimeError}
-					message={runtimeMessage}
-					modelProbe={qwenModelProbe}
-					account={larkAccount}
-					setupJob={larkSetupJob}
-					onRefresh={() => void refreshRuntimeCheck()}
-					onSave={(payload) => void saveRuntimeConfig(payload)}
-					onProbeModels={(payload) => void probeModels(payload)}
-					onInstallLarkCli={() => void downloadLarkCli()}
-					onRefreshAccount={() => void refreshLarkAccount()}
-					onStartAccountSetup={(payload) => void startAccountSetup(payload)}
-					onCancelAccountSetup={(jobId) => void cancelAccountSetup(jobId)}
-				/>
+			<aside className={`settings-sidebar ${settingsOpen ? "settings-sidebar--open" : ""}`} aria-label="环境配置">
+				<button
+					type="button"
+					className="settings-collapse-button"
+					aria-expanded={settingsOpen}
+					aria-label={settingsOpen ? "折叠环境配置" : "展开环境配置"}
+					onClick={() => setSettingsOpen((open) => !open)}
+				>
+					<span aria-hidden="true">{settingsOpen ? "›" : "‹"}</span>
+				</button>
+				<div className="settings-sidebar-content" aria-hidden={!settingsOpen}>
+					<RuntimeCheckPanel
+						data={runtimeCheck}
+						loading={runtimeLoading}
+						saving={runtimeSaving}
+						cliBusy={larkCliBusy}
+						accountBusy={larkAccountBusy}
+						modelBusy={modelProbeBusy}
+						error={runtimeError}
+						message={runtimeMessage}
+						modelProbe={qwenModelProbe}
+						account={larkAccount}
+						setupJob={larkSetupJob}
+						onRefresh={() => void refreshRuntimeCheck()}
+						onSave={(payload) => void saveRuntimeConfig(payload)}
+						onProbeModels={(payload) => void probeModels(payload)}
+						onInstallLarkCli={() => void downloadLarkCli()}
+						onRefreshAccount={() => void refreshLarkAccount()}
+						onStartAccountSetup={(payload) => void startAccountSetup(payload)}
+						onCancelAccountSetup={(jobId) => void cancelAccountSetup(jobId)}
+					/>
+				</div>
 			</aside>
 		</main>
 	);
@@ -629,21 +590,92 @@ export function SidebarPage() {
 function WelcomePanel() {
 	return (
 		<div className="welcome-panel">
-			<h2>要让飞书助手做什么？</h2>
+			<h2>想要飞书助手做什么？</h2>
 		</div>
+	);
+}
+
+function HistoryTreeItem({
+	item,
+	active,
+	expanded,
+	onOpen,
+}: {
+	item: HistoryItem;
+	active: boolean;
+	expanded: boolean;
+	onOpen: () => void;
+}) {
+	const steps = buildHistoryTimelineSteps(item);
+
+	return (
+		<div className={`history-tree-item ${active ? "history-tree-item--active" : ""}`}>
+			<div className="history-tree-row">
+				<span className={`history-node-dot history-node-dot--${statusTone(item.status)}`} aria-hidden="true" />
+				<button type="button" className="history-node-main" aria-expanded={expanded} onClick={onOpen}>
+					<span className="history-node-title">{item.title}</span>
+					<small>{item.status} · {item.updatedAt}</small>
+				</button>
+			</div>
+			{expanded ? <HistoryStatusTree steps={steps} onOpen={onOpen} /> : null}
+		</div>
+	);
+}
+
+function HistoryStatusTree({
+	steps,
+	onOpen,
+}: {
+	steps: ReturnType<typeof buildTimelineSteps>;
+	onOpen: () => void;
+}) {
+	return (
+		<div className="history-tree-children">
+			{steps.map((step) => (
+				<button type="button" className={`history-child-node history-child-node--${step.status}`} key={step.id} onClick={onOpen}>
+					<span className="history-child-dot" />
+					<span>
+						<strong>{step.label}</strong>
+						<small>{step.detail}</small>
+					</span>
+				</button>
+			))}
+		</div>
+	);
+}
+
+function HorizontalStatusFlow({ steps }: { steps: ReturnType<typeof buildTimelineSteps> }) {
+	return (
+		<section className="stream-card horizontal-flow-panel" aria-labelledby="horizontal-flow-title">
+			<div className="stream-card-title">
+				<h2 id="horizontal-flow-title">状态流</h2>
+				<span>Live</span>
+			</div>
+			<ol className="horizontal-flow-list">
+				{steps.map((step) => (
+					<li className={`horizontal-flow-step horizontal-flow-step--${step.status}`} key={step.id}>
+						<span className="horizontal-flow-dot" aria-hidden="true" />
+						<div>
+							<strong>{step.label}</strong>
+							<p>{step.detail}</p>
+						</div>
+					</li>
+				))}
+			</ol>
+		</section>
 	);
 }
 
 function ChatBubble({
 	turn,
 	isLiveTask,
+	isActive,
 	response,
 	currentStatus,
 	timelineSteps,
 	detailItems,
 	traceItems,
 	traceQuery,
-	issueSummary,
 	error,
 	tasks,
 	canCancel,
@@ -652,16 +684,17 @@ function ChatBubble({
 	onRefresh,
 	onRetry,
 	onCancel,
+	turnRef,
 }: {
 	turn: ChatTurn;
 	isLiveTask: boolean;
+	isActive: boolean;
 	response: ExecuteCommandResponse | null;
 	currentStatus: ExecutionStatus;
 	timelineSteps: ReturnType<typeof buildTimelineSteps>;
 	detailItems: [string, string][];
 	traceItems: ReturnType<typeof buildDebugTrace>;
 	traceQuery: string;
-	issueSummary: ReturnType<typeof buildIssueSummary>;
 	error: string;
 	tasks: ReturnType<typeof buildTaskCards>;
 	canCancel: boolean;
@@ -670,25 +703,53 @@ function ChatBubble({
 	onRefresh: () => void;
 	onRetry: () => void;
 	onCancel: () => void;
+	turnRef: (node: HTMLElement | null) => void;
 }) {
+	const isLiveAssistantTurn = turn.role === "assistant" && isLiveTask;
+	const assistantMessage = isLiveAssistantTurn
+		? liveAssistantMessage(currentStatus, error)
+		: turn.content;
+	const showStreamIndicator =
+		isLiveAssistantTurn &&
+		currentStatus !== "completed" &&
+		currentStatus !== "failed" &&
+		currentStatus !== "cli_failed" &&
+		currentStatus !== "canceled";
+
 	return (
-		<article className={`chat-turn chat-turn--${turn.role}`}>
+		<article className={`chat-turn chat-turn--${turn.role} ${isActive ? "chat-turn--active" : ""}`} ref={turnRef}>
 			<div className="message-avatar">{turn.role === "user" ? "你" : "AI"}</div>
 			<div className="message-stack">
-				<div className="message-bubble">
-					<p>{turn.content}</p>
+				<div
+					className={`message-bubble ${
+						isLiveAssistantTurn ? `message-bubble--live message-bubble--${currentStatus}` : ""
+					}`}
+				>
+					<p>
+						{assistantMessage}
+						{showStreamIndicator ? (
+							<span className="streaming-dots" aria-hidden="true">
+								<span />
+								<span />
+								<span />
+							</span>
+						) : null}
+						{isLiveAssistantTurn ? <span className="stream-cursor" aria-hidden="true" /> : null}
+					</p>
 					<time>{turn.createdAt}</time>
 				</div>
 
 				{isLiveTask && response ? (
 					<div className="assistant-workspace">
-						<div className="assistant-summary-card">
-							<div>
-								<span className={`status-dot status-dot--${currentStatus}`} />
-								<strong>{statusText(currentStatus)}</strong>
-								<p>{tasks[0]?.description || response.execution_summary || response.intent_reason || "任务执行状态同步中。"}</p>
-							</div>
-							<div className="summary-actions">
+						<HorizontalStatusFlow steps={timelineSteps} />
+						{error ? <p className="error-banner">{error}</p> : null}
+						<details className="assistant-more-panel trace-collapse-panel">
+							<summary>轨迹面板</summary>
+							<DebugTracePanel items={traceItems} query={traceQuery} onQueryChange={onTraceQueryChange} />
+						</details>
+						<details className="assistant-more-panel">
+							<summary>更多执行信息</summary>
+							<div className="assistant-more-actions">
 								<button type="button" className="secondary-button" disabled={loading || !response} onClick={onRefresh}>
 									刷新
 								</button>
@@ -699,159 +760,29 @@ function ChatBubble({
 									重试
 								</button>
 							</div>
-						</div>
-
-						{issueSummary ? (
-							<ErrorState
-								title={issueSummary.title}
-								description={issueSummary.description}
-								actionHint={issueSummary.actionHint}
-								severity={issueSummary.severity}
-								onRefresh={onRefresh}
-								onRetry={onRetry}
-								onCancel={onCancel}
-								canCancel={canCancel}
-								disabled={loading}
-							/>
-						) : null}
-
-						{error ? <p className="error-banner">{error}</p> : null}
-
-						<div className="task-strip">
-							{tasks.map((task) => (
-								<div className={`task-chip task-chip--${task.status}`} key={task.id}>
-									<strong>{task.title}</strong>
-									<span>{task.owner} · {task.duration}</span>
+							<div className="assistant-more-grid">
+								<div>
+									<span>当前状态</span>
+									<strong>{statusText(currentStatus)}</strong>
 								</div>
-							))}
-						</div>
-
-						<div className="assistant-grid">
-							<StatusTimeline steps={timelineSteps} />
-							<ResultDetail title="执行详情" items={detailItems} />
-						</div>
-						<DebugTracePanel items={traceItems} query={traceQuery} onQueryChange={onTraceQueryChange} />
+								{tasks.map((task) => (
+									<div key={task.id}>
+										<span>{task.owner} · {task.duration}</span>
+										<strong>{task.title}</strong>
+									</div>
+								))}
+								{detailItems.slice(0, 6).map(([label, value]) => (
+									<div key={label}>
+										<span>{label}</span>
+										<strong>{value}</strong>
+									</div>
+								))}
+							</div>
+						</details>
 					</div>
 				) : null}
 			</div>
 		</article>
-	);
-}
-
-function rebuildTurns(item: HistoryItem): ChatTurn[] {
-	const turns: ChatTurn[] = [
-		{
-			id: makeId("history-user"),
-			role: "user",
-			content: item.prompt,
-			createdAt: item.updatedAt,
-		},
-	];
-	if (item.response) {
-		turns.push({
-			id: makeId("history-assistant"),
-			role: "assistant",
-			content: item.response.execution_summary || item.response.intent_reason || "任务已受理，正在跟踪执行状态。",
-			createdAt: item.updatedAt,
-			taskId: item.response.task_id,
-		});
-	}
-	return turns;
-}
-
-function buildLiveStatus({
-	loading,
-	currentStatus,
-	response,
-	detail,
-	streamConnected,
-	streamError,
-}: {
-	loading: boolean;
-	currentStatus: ExecutionStatus;
-	response: ExecuteCommandResponse | null;
-	detail: ExecutionDetailResponse | null;
-	streamConnected: boolean;
-	streamError: string;
-}): { title: string; description: string; tone: "idle" | "running" | "success" | "danger" } {
-	if (!response) {
-		return {
-			title: "空闲",
-			description: "还没有正在跟踪的任务。",
-			tone: "idle",
-		};
-	}
-	if (streamError) {
-		return {
-			title: "轮询兜底",
-			description: streamError,
-			tone: "danger",
-		};
-	}
-	const summary = detail?.executor_result?.summary || response.execution_summary || response.intent_reason || "任务状态同步中。";
-	if (currentStatus === "completed") {
-		return {
-			title: "已完成",
-			description: summary,
-			tone: "success",
-		};
-	}
-	if (currentStatus === "failed" || currentStatus === "cli_failed" || currentStatus === "canceled") {
-		return {
-			title: statusText(currentStatus),
-			description: summary,
-			tone: "danger",
-		};
-	}
-	return {
-		title: loading ? "提交中" : streamConnected ? "实时连接中" : statusText(currentStatus),
-		description: summary,
-		tone: "running",
-	};
-}
-
-function readHistoryStorage(): HistoryItem[] {
-	if (typeof window === "undefined") {
-		return [];
-	}
-	try {
-		const raw = window.localStorage.getItem(historyStorageKey);
-		if (!raw) {
-			return [];
-		}
-		const parsed = JSON.parse(raw) as unknown;
-		if (!Array.isArray(parsed)) {
-			return [];
-		}
-		return parsed.filter(isHistoryItem).slice(0, maxSavedHistoryItems);
-	} catch {
-		return [];
-	}
-}
-
-function writeHistoryStorage(items: HistoryItem[]) {
-	if (typeof window === "undefined") {
-		return;
-	}
-	try {
-		window.localStorage.setItem(historyStorageKey, JSON.stringify(items));
-	} catch {
-		// Local storage can be unavailable in restricted containers.
-	}
-}
-
-function isHistoryItem(value: unknown): value is HistoryItem {
-	if (!value || typeof value !== "object") {
-		return false;
-	}
-	const item = value as Partial<HistoryItem>;
-	return (
-		typeof item.id === "string" &&
-		typeof item.title === "string" &&
-		typeof item.description === "string" &&
-		typeof item.status === "string" &&
-		typeof item.updatedAt === "string" &&
-		typeof item.prompt === "string"
 	);
 }
 
@@ -863,6 +794,87 @@ function makeId(prefix: string): string {
 function titleFromPrompt(prompt: string): string {
 	const trimmed = prompt.replace(/\s+/g, " ").trim();
 	return trimmed.length > 18 ? `${trimmed.slice(0, 18)}...` : trimmed || "新对话";
+}
+
+function buildHistoryTimelineSteps(item: HistoryItem): ReturnType<typeof buildTimelineSteps> {
+	if (!item.response) {
+		return [
+			{
+				id: "draft",
+				label: "用户消息",
+				detail: item.prompt,
+				status: "done",
+			},
+			{
+				id: "waiting",
+				label: "等待执行",
+				detail: "尚未生成任务状态。",
+				status: "pending",
+			},
+		];
+	}
+	return buildTimelineSteps({
+		taskId: item.response.task_id,
+		response: item.response,
+		detail: item.detail ?? null,
+		lastEvent: null,
+		streamConnected: false,
+		streamError: "",
+	});
+}
+
+function statusTone(status: string): "running" | "success" | "danger" | "idle" {
+	if (status.includes("完成")) {
+		return "success";
+	}
+	if (status.includes("失败") || status.includes("取消")) {
+		return "danger";
+	}
+	if (status.includes("中") || status.includes("接管") || status.includes("排队")) {
+		return "running";
+	}
+	return "idle";
+}
+
+function liveAssistantMessage(status: ExecutionStatus, error: string): string {
+	if (error) {
+		return error;
+	}
+	if (status === "completed") {
+		return "完成！";
+	}
+	if (status === "failed" || status === "cli_failed") {
+		return "执行失败";
+	}
+	if (status === "canceled") {
+		return "已取消";
+	}
+	const labels: Record<ExecutionStatus, string> = {
+		queued: "已收到，正在排队",
+		parsing: "正在理解任务",
+		cli_running: "正在通过 CLI 执行",
+		cli_failed: "执行失败",
+		cua_running: "正在接管桌面操作",
+		completed: "完成！",
+		failed: "执行失败",
+		canceled: "已取消",
+	};
+	return labels[status];
+}
+
+function persistedAssistantContent(
+	status: ExecutionStatus,
+	response: ExecuteCommandResponse,
+	detail: ExecutionDetailResponse | null,
+): string {
+	const summary = detail?.executor_result?.summary || response.execution_summary || response.intent_reason || "";
+	if (status === "completed") {
+		return "完成！";
+	}
+	if (status === "failed" || status === "cli_failed" || status === "canceled") {
+		return liveAssistantMessage(status, "");
+	}
+	return liveAssistantMessage(status, "") || summary || "任务已受理，状态将通过长连接持续更新。";
 }
 
 function formatClock(value: Date): string {

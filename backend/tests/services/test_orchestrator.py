@@ -178,6 +178,60 @@ def test_orchestrator_hands_off_unresolved_message_target_before_cli() -> None:
     ]
 
 
+def test_orchestrator_hands_off_unknown_intent_to_cua() -> None:
+    service = OrchestratorService()
+
+    async def fake_parse(*_: object, **__: object) -> IntentDecision:
+        return IntentDecision(
+            intent_type=IntentType.UNKNOWN,
+            reason="qwen parse failed",
+            action_plan=[],
+            selected_executor=ExecutorType.NONE,
+            parse_source="qwen_required",
+            standard_action=StandardAction(),
+            structured_command={},
+        )
+
+    def fake_cua_execute_fallback(**kwargs: object) -> ExecutorResult:
+        assert kwargs["trigger_source"] == "parse"
+        assert kwargs["raw_message"] == "复杂自然语言任务"
+        action = kwargs["action"]
+        assert isinstance(action, StandardAction)
+        assert action.executor_hint == ExecutorType.CUA
+        assert action.payload["raw_message"] == "复杂自然语言任务"
+        return ExecutorResult(
+            executor=ExecutorType.CUA,
+            success=True,
+            status=ExecutionStatus.COMPLETED,
+            summary="cua fallback executed",
+            payload={"mode": "cua_fallback", "triggered_by": {"source": "parse"}},
+        )
+
+    service.intent_service.parse = fake_parse  # type: ignore[method-assign]
+    service.cua_service.execute_fallback = fake_cua_execute_fallback  # type: ignore[method-assign]
+
+    response = asyncio.run(service.execute_command(request("复杂自然语言任务")))
+    task = service.get_task(response.task_id)
+
+    assert response.selected_executor == ExecutorType.CUA
+    assert response.parsed_intent == IntentType.UNKNOWN
+    assert response.execution_status == ExecutionStatus.COMPLETED
+    assert response.cua_should_trigger is True
+    assert response.handoff_error_code == int(UnifiedErrorCode.HANDOFF_REQUIRED)
+    assert response.standard_action.capability_id == CapabilityId.UNKNOWN
+    assert response.standard_action.executor_hint == ExecutorType.CUA
+    assert response.structured_payload["mode"] == "parse_fallback"
+    assert response.execution_payload["triggered_by"]["source"] == "parse"
+    assert task is not None
+    assert [step.name for step in task.steps] == [
+        "task_created",
+        "intent_parsed",
+        "parse_fallback",
+        "cua_started",
+        "cua_finished",
+    ]
+
+
 def test_orchestrator_fails_missing_message_target_without_hint_before_cli() -> None:
     service = OrchestratorService()
     payload = {

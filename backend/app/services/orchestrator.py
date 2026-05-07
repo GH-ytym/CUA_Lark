@@ -133,11 +133,75 @@ class OrchestratorService:
         plan_only_count = 0
         failed_count = 0
         handoff_error_code: int | None = None
+        selected_executor = parsed.selected_executor
 
         if parsed.intent_type == IntentType.UNKNOWN:
-            task.status = ExecutionStatus.FAILED
-            execution_status = ExecutionStatus.FAILED
-            execution_summary = "未找到可执行的标准动作。"
+            selected_executor = ExecutorType.CUA
+            handoff_error_code = int(UnifiedErrorCode.HANDOFF_REQUIRED)
+            parse_fallback_action = self._parse_fallback_action(
+                raw_message=payload.message,
+                parsed_reason=parsed.reason,
+                parse_source=parsed.parse_source,
+                error_code=handoff_error_code,
+            )
+            item = task.planned_actions[0] if task.planned_actions else PlannedActionItem(order=1)
+            item.raw_message = item.raw_message or payload.message
+            item.standard_action = parse_fallback_action
+            item.status = "parse_fallback"
+            item.summary = "意图解析失败，切换到 CUA 接管原始任务。"
+            item.error_code = handoff_error_code
+            task.planned_actions = [item]
+            task.standard_action = parse_fallback_action
+            task.intent_type = IntentType.UNKNOWN
+            execution_payload = self._parse_fallback_payload(
+                action=parse_fallback_action,
+                raw_message=payload.message,
+                parsed_reason=parsed.reason,
+                parse_source=parsed.parse_source,
+                error_code=handoff_error_code,
+            )
+            item.execution_payload = execution_payload
+            self._record_step(
+                task,
+                "parse_fallback",
+                ExecutionStatus.CUA_RUNNING,
+                item.summary,
+                {
+                    "order": item.order,
+                    "error_code": handoff_error_code,
+                    "parse_source": parsed.parse_source,
+                    "reason": parsed.reason,
+                },
+            )
+            if self._is_cancel_requested(task.task_id):
+                task.status = ExecutionStatus.CANCELED
+                item.status = "canceled"
+                execution_status = ExecutionStatus.CANCELED
+                execution_summary = "task canceled before cua fallback"
+                self._record_step(task, "action_1_canceled", ExecutionStatus.CANCELED, execution_summary)
+            else:
+                cua_result = await asyncio.to_thread(
+                    self._execute_cua_fallback,
+                    task=task,
+                    item=item,
+                    action=parse_fallback_action,
+                    raw_message=payload.message,
+                    error_code=handoff_error_code,
+                    cli_payload=execution_payload,
+                    trigger_source="parse",
+                    diagnosis=None,
+                )
+                task.executor_result = cua_result
+                execution_status = cua_result.status
+                execution_summary = cua_result.summary
+                execution_payload = cua_result.payload
+                cua_error_code = cua_result.error_code
+                cua_should_trigger = True
+                any_cua_triggered = True
+                if cua_result.success:
+                    completed_count += 1
+                else:
+                    failed_count += 1
         else:
             for item in task.planned_actions:
                 if self._is_cancel_requested(task.task_id):
@@ -484,7 +548,7 @@ class OrchestratorService:
 
         return self._response_from_task(
             task=task,
-            selected_executor=parsed.selected_executor,
+            selected_executor=selected_executor,
             parsed_intent=parsed.intent_type,
             intent_reason=parsed.reason,
             action_plan=parsed.action_plan,
@@ -768,6 +832,8 @@ class OrchestratorService:
         summary = (
             diagnosis.user_message
             if diagnosis is not None
+            else "意图解析失败，切换到 CUA 接管原始任务。"
+            if trigger_source == "parse"
             else "standard error code produced, switching to cua fallback"
         )
         self._record_step(
@@ -876,6 +942,53 @@ class OrchestratorService:
                 "code": error_code,
                 "name": cli_error_name(error_code),
                 "message": handoff_reason or "structured handoff requested",
+            },
+        }
+
+    @staticmethod
+    def _parse_fallback_action(
+        *,
+        raw_message: str,
+        parsed_reason: str,
+        parse_source: str,
+        error_code: int,
+    ) -> StandardAction:
+        return StandardAction(
+            capability_id=CapabilityId.UNKNOWN,
+            payload={
+                "mode": "parse_fallback",
+                "raw_message": raw_message,
+                "parse_source": parse_source,
+                "parse_reason": parsed_reason,
+                "handoff_error_code": error_code,
+                "handoff_reason": "intent parse failed; hand off raw natural-language task to CUA",
+            },
+            executor_hint=ExecutorType.CUA,
+            intent_type=IntentType.UNKNOWN,
+            handoff_error_code=error_code,
+            handoff_reason="intent parse failed; hand off raw natural-language task to CUA",
+        )
+
+    @staticmethod
+    def _parse_fallback_payload(
+        *,
+        action: StandardAction,
+        raw_message: str,
+        parsed_reason: str,
+        parse_source: str,
+        error_code: int,
+    ) -> dict[str, object]:
+        return {
+            "mode": "parse_fallback",
+            "capability_id": action.capability_id.value,
+            "payload": dict(action.payload),
+            "raw_message": raw_message,
+            "parse_source": parse_source,
+            "parse_reason": parsed_reason,
+            "error": {
+                "code": error_code,
+                "name": cli_error_name(error_code),
+                "message": "intent parse failed; switching to CUA fallback",
             },
         }
 

@@ -182,6 +182,45 @@ def test_cua_service_accepts_structured_trigger_source(monkeypatch) -> None:
     assert result.payload["fallback_request"]["triggered_by"]["source"] == "structured"
 
 
+def test_cua_service_accepts_parse_trigger_source(monkeypatch) -> None:
+    class FakeResponse:
+        success = True
+        message = "done"
+
+        def model_dump(self) -> dict[str, object]:
+            return {"success": True, "message": self.message}
+
+    class FakeExecutor:
+        def run(self, request: _FakeRequest) -> FakeResponse:
+            return FakeResponse()
+
+    monkeypatch.setattr(
+        CuaService,
+        "_load_executor_components",
+        staticmethod(lambda: (FakeExecutor, _FakeRequest)),
+    )
+
+    result = CuaService().execute_fallback(
+        action=StandardAction(
+            capability_id=CapabilityId.UNKNOWN,
+            payload={"raw_message": "复杂自然语言任务"},
+            executor_hint=ExecutorType.CUA,
+            intent_type=IntentType.UNKNOWN,
+        ),
+        raw_message="复杂自然语言任务",
+        task_id="task-parse",
+        cli_error_code=int(UnifiedErrorCode.HANDOFF_REQUIRED),
+        cli_payload={"mode": "parse_fallback"},
+        trigger_source="parse",
+    )
+
+    assert result.success is True
+    assert _FakeRequest.last_kwargs["trigger"]["source"] == "parse"
+    assert _FakeRequest.last_kwargs["instruction"] == "复杂自然语言任务"
+    assert result.payload["triggered_by"]["source"] == "parse"
+    assert result.payload["fallback_request"]["triggered_by"]["source"] == "parse"
+
+
 def test_cua_service_passes_through_memory_metadata(monkeypatch) -> None:
     class FakeResponse:
         success = True
